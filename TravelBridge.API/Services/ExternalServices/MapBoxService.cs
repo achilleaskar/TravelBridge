@@ -1,4 +1,4 @@
-﻿using System.Text.Json;
+using System.Text.Json;
 using Microsoft.Extensions.Options;
 using TravelBridge.API.Models;
 using TravelBridge.API.Models.Apis;
@@ -50,20 +50,24 @@ namespace TravelBridge.API.Services.ExternalServices
                 {
                     throw new InvalidOperationException(ex.ToString());
                 }
+                catch (Exception ex)
+                {
+
+                }
             }
             return [];
         }
 
         private static IEnumerable<AutoCompleteLocation> MapResultsToLocations(List<Feature> features)
         {
-            //TODO: handle error
-            return features.Select(f =>
-            new AutoCompleteLocation(
-                f.Properties.NamePreferred,
-                f.Properties.Context.Region.Name,
-                $"[{string.Join(",", f.Properties.Bbox)}]-{f.Properties.Coordinates.Latitude}-{f.Properties.Coordinates.Longitude}",
-                f.Properties.Context.Country.CountryCode,
-                AutoCompleteType.location));
+            return features
+                .Where(f => f.Properties != null && (f.Properties.FeatureType == null || !f.Properties.FeatureType.Equals("country")))
+                .Select(f => new AutoCompleteLocation(
+                    f.Properties.NamePreferred,
+                    f.Properties.Context.Region?.Name ?? "",
+                    $"[{string.Join(",", f.Properties.Bbox)}]-{f.Properties.Coordinates.Latitude}-{f.Properties.Coordinates.Longitude}",
+                    f.Properties.Context.Country.CountryCode,
+                    AutoCompleteType.location));
         }
     }
 }

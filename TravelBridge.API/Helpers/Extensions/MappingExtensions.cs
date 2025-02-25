@@ -1,5 +1,8 @@
-﻿using TravelBridge.API.Contracts;
+using System;
+using System.Runtime.InteropServices;
+using TravelBridge.API.Contracts;
 using TravelBridge.API.Models;
+using TravelBridge.API.Models.WebHotelier;
 
 namespace TravelBridge.API.Helpers.Extensions
 {
@@ -18,15 +21,16 @@ namespace TravelBridge.API.Helpers.Extensions
             if (minRate.Margin == null || minRate.Margin < minMargin)
             {
                 minprice = minRate.Price.Value + minMargin;
-                salePrice = minRate.Retail ?? 0 + minRate.Discount ?? 0;
+                salePrice = (minRate.Retail ?? 0) + (minRate.Discount ?? 0);
                 return minprice;
             }
             else if (minRate.Retail == null)
             {
                 minprice = minRate.Price.Value + minRate.Margin.Value;
-                salePrice = minRate.Retail ?? 0 + minRate.Discount ?? 0;
+                salePrice = (minRate.Retail ?? 0) + (minRate.Discount ?? 0);
                 return minprice;
             }
+            salePrice = (minRate.Retail ?? 0) + (minRate.Discount ?? 0);
             return minRate.Retail.Value;
         }
 
@@ -52,12 +56,15 @@ namespace TravelBridge.API.Helpers.Extensions
             return minRate.Retail.TotalPrice;
         }
 
-        public static SingleAvailabilityResponse? MapToResponse(this SingleAvailabilityData data)
+        private static int[] noboardIds = new int[] { 0, 14 };
+
+        public static SingleAvailabilityResponse? MapToResponse(this SingleAvailabilityData data, DateTime checkout)
         {
             if (data?.Data == null)
             {
                 return null;
             }
+
             return new SingleAvailabilityResponse
             {
                 HttpCode = data.HttpCode,
@@ -77,20 +84,28 @@ namespace TravelBridge.API.Helpers.Extensions
                         Rates = r.Select(rate => new SingleHotelRate
                         {
                             Id = rate.Id,
-                            RateName = rate.RateName,
+                            RateProperties = new RateProperties
+                            {
+                                RateName = rate.RateName,
+                                Board = rate.BoardType?.MapBoardType(Language.el) ?? "Χωρίς διατροφή",
+                                CancellationExpiry = rate.CancellationExpiry,
+                                CancellationName = rate.CancellationExpiry == null ? "Χωρίς δωρεάν ακύρωση" : "Δωρεάν ακύρωση",
+                                CancellationPenalty = rate.CancellationPenalty, 
+                                CancellationPolicy = rate.CancellationPolicy,
+                                CancellationFees = rate.CancellationFees.ToList().MapToList(checkout),
+                                HasCancellation = rate.CancellationExpiry != null,
+                                HasBoard = !noboardIds.Contains(rate.BoardType ?? 0)
+                            },
                             RateDescription = rate.RateDescription,
-                            PaymentPolicy = rate.PaymentPolicy,
-                            BoardType = rate.BoardType,
-                            CancellationExpiry = rate.CancellationExpiry,
-                            CancellationPenalty = rate.CancellationPenalty,
-                            CancellationPolicy = rate.CancellationPolicy,
-                            CancellationPolicyId = rate.CancellationPolicyId,
                             Labels = rate.Labels,
-                            PaymentPolicyId = rate.PaymentPolicyId,
                             Retail = rate.Retail,
                             Pricing = rate.Pricing,
+                            BoardType = rate.BoardType,
                             Status = rate.Status,
-                            StatusDescription = rate.StatusDescription
+                            StatusDescription = rate.StatusDescription,
+                            RemainingRooms = rate.RemainingRooms,
+                            TotalPrice = rate.GetTotalPrice(),
+                            SalePrice = rate.GetSalePrice()
                         }).ToList()
                     })
                 }
@@ -113,6 +128,67 @@ namespace TravelBridge.API.Helpers.Extensions
                 { "Hotel", new List<string> { "hotel"} }
             };
 
+        public static List<StringAmount> MapToList(this IEnumerable<CancellationFee> cancellationFees, DateTime checkOut)
+        {
+            var result = new List<StringAmount>();
+            if (cancellationFees == null || !cancellationFees.Any())
+                return result;
+
+            var fees = cancellationFees.OrderBy(c => c.After).ToList();
+            CancellationFee? previous = null;
+
+            string timeZoneId = RuntimeInformation.IsOSPlatform(OSPlatform.Windows) ? "GTB Standard Time" : "Europe/Athens";
+
+            // Determine Greek time offset dynamically
+            TimeZoneInfo greekTimeZone;
+            try
+            {
+                greekTimeZone = TimeZoneInfo.FindSystemTimeZoneById(timeZoneId);
+            }
+            catch (TimeZoneNotFoundException)
+            {
+                greekTimeZone = TimeZoneInfo.Local; // Fallback to system time
+            }
+            int offset = (int)greekTimeZone.GetUtcOffset(DateTime.UtcNow).TotalHours;
+
+            // Ensure today exists or add an initial entry for the first cancellation date
+            if (fees.First().After?.Date > DateTime.Today)
+            {
+                result.Add(new StringAmount
+                {
+                    Description = $"έως {fees.First().After.Value.AddHours(offset):dd-MM-yyyy HH:00}",
+                    Amount = 0 // No charge before first cancellation fee
+                });
+            }
+
+            // Process cancellation fees
+            foreach (var fee in fees)
+            {
+                if (previous != null)
+                {
+                    result.Add(new StringAmount
+                    {
+                        Description = $"έως {fee.After.Value.AddHours(offset):dd-MM-yyyy HH:00}",
+                        Amount = previous.Fee ?? 0
+                    });
+                }
+                previous = fee;
+            }
+
+            // Ensure the last entry covers up to check-out if necessary
+            var last = fees.Last();
+            if (last.After?.Date != checkOut.Date && last.Fee > 0)
+            {
+                result.Add(new StringAmount
+                {
+                    Description = $"έως {checkOut.AddHours(offset):dd-MM-yyyy}",
+                    Amount = last.Fee ?? 0
+                });
+            }
+
+            return result;
+        }
+
         public static HashSet<string> MapToType(this string type)
         {
             if (string.IsNullOrWhiteSpace(type))
@@ -123,7 +199,7 @@ namespace TravelBridge.API.Helpers.Extensions
             // Get all categories that match the type
             var matchedCategories = categoryMapping
                 .Where(category => category.Value.Any(keyword => normalizedType.Contains(keyword, StringComparison.InvariantCultureIgnoreCase)))
-                .Select(category => category.Key.ToLower())
+                .Select(category => category.Key)
                 .Distinct()
                 .ToHashSet();
 
@@ -132,33 +208,61 @@ namespace TravelBridge.API.Helpers.Extensions
 
         private static readonly Dictionary<int, Dictionary<Language, string>> BoardTypes = new()
         {
-                    { 0, new Dictionary<Language, string> { {  Language.en, "No board or N/A" }, {  Language.el, "Χωρίς γεύματα ή Μη διαθέσιμο" } } },
-                    { 1, new Dictionary<Language, string> { {  Language.en, "All Inclusive" }, {  Language.el, "Όλα συμπεριλαμβάνονται" } } },
-                    { 2, new Dictionary<Language, string> { {  Language.en, "American" }, {  Language.el, "Αμερικανικό" } } },
-                    { 3, new Dictionary<Language, string> { {  Language.en, "Bed & Breakfast" }, {  Language.el, "Διαμονή & Πρωινό" } } },
-                    { 4, new Dictionary<Language, string> { {  Language.en, "Buffet Breakfast" }, {  Language.el, "Πρωινό σε Μπουφέ" } } },
-                    { 5, new Dictionary<Language, string> { {  Language.en, "Caribbean Breakfast" }, {  Language.el, "Καραϊβικό Πρωινό" } } },
-                    { 6, new Dictionary<Language, string> { {  Language.en, "Continental Breakfast" }, {  Language.el, "Ηπειρωτικό Πρωινό" } } },
-                    { 7, new Dictionary<Language, string> { {  Language.en, "English Breakfast" }, {  Language.el, "Αγγλικό Πρωινό" } } },
-                    { 8, new Dictionary<Language, string> { {  Language.en, "European Plan" }, {  Language.el, "Ευρωπαϊκό Πρόγραμμα" } } },
-                    { 9, new Dictionary<Language, string> { {  Language.en, "Family Plan" }, {  Language.el, "Οικογενειακό Πρόγραμμα" } } },
-                    { 10, new Dictionary<Language, string> { {  Language.en, "Full Board" }, {  Language.el, "Πλήρης Διατροφή" } } },
-                    { 11, new Dictionary<Language, string> { {  Language.en, "Full Breakfast" }, {  Language.el, "Πλήρες Πρωινό" } } },
-                    { 12, new Dictionary<Language, string> { {  Language.en, "Half Board" }, {  Language.el, "Ημιδιατροφή" } } },
-                    { 13, new Dictionary<Language, string> { {  Language.en, "As Brochured" }, {  Language.el, "Όπως στο φυλλάδιο" } } },
-                    { 14, new Dictionary<Language, string> { {  Language.en, "Room Only" }, {  Language.el, "Μόνο Δωμάτιο" } } },
-                    { 15, new Dictionary<Language, string> { {  Language.en, "Self Catering" }, {  Language.el, "Αυτοεξυπηρέτηση" } } },
-                    { 16, new Dictionary<Language, string> { {  Language.en, "Bermuda" }, {  Language.el, "Βερμούδες" } } },
-                    { 17, new Dictionary<Language, string> { {  Language.en, "Dinner Bed and Breakfast Plan" }, {  Language.el, "Δείπνο, Κρεβάτι και Πρωινό" } } },
-                    { 18, new Dictionary<Language, string> { {  Language.en, "Family American" }, {  Language.el, "Οικογενειακό Αμερικανικό" } } },
-                    { 19, new Dictionary<Language, string> { {  Language.en, "Breakfast" }, {  Language.el, "Πρωινό" } } },
-                    { 20, new Dictionary<Language, string> { {  Language.en, "Modified" }, {  Language.el, "Τροποποιημένο" } } },
-                    { 21, new Dictionary<Language, string> { {  Language.en, "Lunch" }, {  Language.el, "Μεσημεριανό" } } },
-                    { 22, new Dictionary<Language, string> { {  Language.en, "Dinner" }, {  Language.el, "Δείπνο" } } },
-                    { 23, new Dictionary<Language, string> { {  Language.en, "Breakfast & Lunch" }, {  Language.el, "Πρωινό & Μεσημεριανό" } } }
-                };
+            { 0, new Dictionary<Language, string> { {  Language.en, "No board or N/A" }, {  Language.el, "Χωρίς γεύματα ή Μη διαθέσιμο" } } },
+            { 1, new Dictionary<Language, string> { {  Language.en, "All Inclusive" }, {  Language.el, "All Inclusive" } } },
+            { 2, new Dictionary<Language, string> { {  Language.en, "American" }, {  Language.el, "Αμερικανικό Πρωινό" } } },
+            { 3, new Dictionary<Language, string> { {  Language.en, "Bed & Breakfast" }, {  Language.el, "Διαμονή & Πρωινό" } } },
+            { 4, new Dictionary<Language, string> { {  Language.en, "Buffet Breakfast" }, {  Language.el, "Πρωινό σε Μπουφέ" } } },
+            { 5, new Dictionary<Language, string> { {  Language.en, "Caribbean Breakfast" }, {  Language.el, "Πρωινό Καραϊβικής" } } },
+            { 6, new Dictionary<Language, string> { {  Language.en, "Continental Breakfast" }, {  Language.el, "Ηπειρωτικό Πρωινό" } } },
+            { 7, new Dictionary<Language, string> { {  Language.en, "English Breakfast" }, {  Language.el, "Αγγλικό Πρωινό" } } },
+            { 8, new Dictionary<Language, string> { {  Language.en, "European Plan" }, {  Language.el, "Ευρωπαϊκό Πρωινό" } } },
+            { 9, new Dictionary<Language, string> { {  Language.en, "Family Plan" }, {  Language.el, "Οικογενειακό Πρωινό" } } },
+            { 10, new Dictionary<Language, string> { {  Language.en, "Full Board" }, {  Language.el, "Πλήρης Διατροφή" } } },
+            { 11, new Dictionary<Language, string> { {  Language.en, "Full Breakfast" }, {  Language.el, "Πλήρες Πρωινό" } } },
+            { 12, new Dictionary<Language, string> { {  Language.en, "Half Board" }, {  Language.el, "Ημιδιατροφή" } } },
+            { 13, new Dictionary<Language, string> { {  Language.en, "As Brochured" }, {  Language.el, "Πρωινό βάση φυλλαδίου" } } },
+            { 14, new Dictionary<Language, string> { {  Language.en, "Room Only" }, {  Language.el, "Χωρίς διατροφή" } } },
+            { 15, new Dictionary<Language, string> { {  Language.en, "Self Catering" }, {  Language.el, "Αυτοεξυπηρέτηση" } } },
+            { 16, new Dictionary<Language, string> { {  Language.en, "Bermuda" }, {  Language.el, "Πρωινό Βερμούδων" } } },
+            { 17, new Dictionary<Language, string> { {  Language.en, "Dinner Bed and Breakfast Plan" }, {  Language.el, "Δείπνο, Κρεβάτι και Πρωινό" } } },
+            { 18, new Dictionary<Language, string> { {  Language.en, "Family American" }, {  Language.el, "Οικογενειακό Αμερικανικό Πρωινό" } } },
+            { 19, new Dictionary<Language, string> { {  Language.en, "Breakfast" }, {  Language.el, "Πρωινό" } } },
+            { 20, new Dictionary<Language, string> { {  Language.en, "Modified" }, {  Language.el, "Τροποποιημένο" } } },
+            { 21, new Dictionary<Language, string> { {  Language.en, "Lunch" }, {  Language.el, "Μεσημεριανό" } } },
+            { 22, new Dictionary<Language, string> { {  Language.en, "Dinner" }, {  Language.el, "Δείπνο" } } },
+            { 23, new Dictionary<Language, string> { {  Language.en, "Breakfast & Lunch" }, {  Language.el, "Πρωινό & Μεσημεριανό" } } }
+        };
 
-        public static List<Board> MapBoardTypes(this IEnumerable<Rate>? rates, Language lang = Language.el)
+        // Mapping rules: If a specific board ID exists, remove the conflicting ones and update values
+        private static readonly Dictionary<int?, int> BoardReplacements = new()
+        {
+            { 0, 14 }, // If 14 exists, replace 0 → 14
+            //{ 10, 1 }  // If 10 exists, replace 10 → 1
+        };
+
+        public static string? MapBoardType(this int boardId, Language lang = Language.el)
+        {
+            // Apply board replacement rules
+            foreach (var (oldBoard, newBoard) in BoardReplacements)
+            {
+                if (boardId == oldBoard)
+                {
+                    boardId = newBoard; // Replace the board if a rule exists
+                    break;
+                }
+            }
+
+            // Ensure the board exists in the dictionary
+            if (BoardTypes.ContainsKey(boardId))
+            {
+                return BoardTypes[boardId].ContainsKey(lang) ? BoardTypes[boardId][lang] : "Χωρίς διατροφή";
+            }
+
+            return "Χωρίς διατροφή"; // Return null if board ID is not valid
+        }
+
+        public static List<Board> MapBoardTypes(this IEnumerable<BaseBoard>? rates, Language lang = Language.el)
         {
             if (rates == null)
                 return new List<Board>();
@@ -166,15 +270,27 @@ namespace TravelBridge.API.Helpers.Extensions
             // Convert rates to a list for multiple iterations
             var rateList = rates.ToList();
 
-            // Check if board ID 14 exists, and if so, remove board ID 0
-            if (rateList.Any(rate => rate.Board == 14))
+            var boardIds = rateList.Select(rate => rate.BoardType).ToHashSet(); // Store existing board IDs
+
+            // Apply the board replacement rules
+            foreach (var (oldBoard, newBoard) in BoardReplacements)
             {
-                rateList = rateList.Where(rate => rate.Board != 0).ToList();
+                if (boardIds.Contains(newBoard)) // If the newBoard exists in the list
+                {
+                    rateList.RemoveAll(rate => rate.BoardType == oldBoard); // Remove conflicting board
+                }
+                else
+                {
+                    foreach (var rate in rateList.Where(rate => rate.BoardType == oldBoard))
+                    {
+                        rate.BoardType = newBoard;
+                    }
+                }
             }
 
             return rateList
-                   .Where(rate => BoardTypes.ContainsKey(rate.Board ?? 0)) // Ensure the board exists in the dictionary
-                   .GroupBy(rate => rate.Board ?? 0) // Group by board ID to ensure distinct values
+                   .Where(rate => BoardTypes.ContainsKey(rate.BoardType ?? 0)) // Ensure the board exists in the dictionary
+                   .GroupBy(rate => rate.BoardType ?? 14) // Group by board ID to ensure distinct values
                    .Select(group => new Board
                    {
                        Id = group.Key, // Key: Board ID
@@ -183,15 +299,47 @@ namespace TravelBridge.API.Helpers.Extensions
                    .ToList();
         }
 
-        public static Dictionary<int, string> MapBoardTypes(this IEnumerable<SingleHotelRate> rates, Language lang = Language.el)
+        public static void SetBoardsText(this BoardTextBase b)
         {
-            return rates?
-                   .Where(rate => BoardTypes.ContainsKey(rate.BoardType ?? 0)) // Ensure the board exists in the dictionary
-                   .GroupBy(rate => rate.BoardType ?? 0) // Group by board ID to ensure distinct values
-                   .ToDictionary(
-                       group => group.Key, // Key: Board ID
-                       group => BoardTypes[group.Key].ContainsKey(lang) ? BoardTypes[group.Key][lang] : "Unknown" // Value: Description in the selected language
-                   ) ?? new();
+            if (b.Boards == null || b.Boards.Count == 0)
+            {
+                b.BoardsText = "";
+                b.HasBoards = false;
+                return;
+            }
+
+            if (b.Boards.Any(b => b.Id == 0))
+            {
+            }
+
+            bool hasRoomOnly = b.Boards.Any(b => b.Id == 14);
+            if (hasRoomOnly && b.Boards.Count == 1)
+            {
+                b.Boards.First().Name = "Χωρίς επιλογές διατροφής";
+            }
+
+            if (b.Boards.Count == 1)
+            {
+                b.BoardsText = "Διατροφή:";
+                b.HasBoards = true;
+                return;
+            }
+
+            if (hasRoomOnly)
+            {
+                b.BoardsText = "Επιλογές Διατροφής:";
+                b.HasBoards = true;
+                b.Boards.FirstOrDefault(b => b.Id == 14).Name += " -  δεν θα φαινεται";
+                //Boards.RemoveAll(b => b.Id == 14);
+                return;
+            }
+
+            if (b.Boards.Count > 1)
+            {
+                b.BoardsText = "Επιλογές Διατροφής:";
+                b.HasBoards = true;
+                return;
+            }
         }
     }
 }

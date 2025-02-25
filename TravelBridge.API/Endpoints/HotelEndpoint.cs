@@ -1,7 +1,8 @@
-﻿using System.Globalization;
+using System.Globalization;
 using System.Text.Json;
 using Microsoft.OpenApi.Models;
 using TravelBridge.API.Contracts;
+using TravelBridge.API.Helpers;
 using TravelBridge.API.Helpers.Extensions;
 using TravelBridge.API.Services.WebHotelier;
 
@@ -69,6 +70,8 @@ namespace TravelBridge.API.Endpoints
 
         public async Task<HotelInfoFullResponse> GetHotelFullInfo(string checkin, string checkOut, int? adults, string? children, int? rooms, string? party, string hotelId)
         {
+            #region Params Validation
+
 
             if (string.IsNullOrWhiteSpace(hotelId))
             {
@@ -103,12 +106,13 @@ namespace TravelBridge.API.Endpoints
                     throw new ArgumentException("There must be at least one adult in the room.");
                 }
 
-                party = CreateParty(adults.Value, children);
+                party = General.CreateParty(adults.Value, children);
             }
             else
             {
                 party = BuildMultiRoomJson(party);
             }
+            #endregion
 
             SingleAvailabilityRequest availReq = new()
             {
@@ -118,7 +122,7 @@ namespace TravelBridge.API.Endpoints
                 PropertyId = hotelInfo[1]
             };
 
-            var availTask = webHotelierPropertiesService.GetHotelAvailabilityAsync(availReq);
+            var availTask = webHotelierPropertiesService.GetHotelAvailabilityAsync(availReq, parsedCheckOut);
             var hotelTask = webHotelierPropertiesService.GetHotelInfo(hotelInfo[1]);
             Task.WaitAll(availTask, hotelTask);
 
@@ -143,16 +147,32 @@ namespace TravelBridge.API.Endpoints
                 HotelData = hotelRes.Data,
                 Rooms = availRes.Data?.Rooms ?? [],
             };
-            res.HotelData.CustomInfo = "Incomplete";
-            res.HotelData.MinPrice = Math.Ceiling(availRes.Data?.GetMinPrice(out salePrice) ?? 0);
+            res.HotelData.CustomInfo = GetHotelBasicInfo(availRes, hotelRes);
+            res.HotelData.MinPrice = Math.Floor(availRes.Data?.GetMinPrice(out salePrice) ?? 0);
             res.HotelData.SalePrice = salePrice;
-            res.HotelData.MinPricePerNight = Math.Ceiling(res.HotelData.MinPrice / nights);
+            res.HotelData.MinPricePerNight = Math.Floor(res.HotelData.MinPrice / nights);
             res.HotelData.MappedTypes = res.HotelData.Type.MapToType();
-            res.HotelData.BoardNames = res.Rooms.SelectMany(a=>a.Rates).MapBoardTypes();
+            res.HotelData.Boards = res.Rooms.SelectMany(a => a.Rates).MapBoardTypes();
+            res.HotelData.SetBoardText();
 
             return res;
-
         }
+
+        private string GetHotelBasicInfo(SingleAvailabilityResponse availRes, HotelInfoResponse hotelRes)
+        {
+            string response = GenerateHtml(hotelRes.Data.Operation);
+            return response;
+        }
+
+        public string GenerateHtml(HotelOperation operation)
+        {
+            return $@"
+                  <ul style='list-style-type: none; padding: 0;'>
+                    <li><strong>Check-in Time:</strong> {operation.CheckinTime}</li>
+                    <li><strong>Check-out Time:</strong> {operation.CheckoutTime}</li>
+                  </ul>";
+        }
+
 
         private async Task<RoomInfoRespone> GetRoomInfo(string hotelId, string roomId)
         {
@@ -178,6 +198,8 @@ namespace TravelBridge.API.Endpoints
 
         private async Task<SingleAvailabilityResponse> GetHotelAvailability(string checkin, string checkOut, int? adults, string? children, int? rooms, string? party, string hotelId)
         {
+            #region Params Validation
+
             if (!DateTime.TryParseExact(checkin, "dd/MM/yyyy", CultureInfo.InvariantCulture, DateTimeStyles.None, out var parsedCheckin))
             {
                 throw new InvalidCastException("Invalid checkin date format. Use dd/MM/yyyy.");
@@ -194,7 +216,6 @@ namespace TravelBridge.API.Endpoints
                 throw new ArgumentException("Invalid hotelId format. Use bbox-lat-lon.");
             }
 
-
             if (string.IsNullOrWhiteSpace(party))
             {
                 if (rooms != 1)
@@ -207,12 +228,13 @@ namespace TravelBridge.API.Endpoints
                     throw new ArgumentException("There must be at least one adult in the room.");
                 }
 
-                party = CreateParty(adults.Value, children);
+                party = General.CreateParty(adults.Value, children);
             }
             else
             {
                 party = BuildMultiRoomJson(party);
             }
+            #endregion
 
             SingleAvailabilityRequest req = new()
             {
@@ -222,26 +244,13 @@ namespace TravelBridge.API.Endpoints
                 PropertyId = hotelInfo[1]
             };
 
-            var res = await webHotelierPropertiesService.GetHotelAvailabilityAsync(req);
+            var res = await webHotelierPropertiesService.GetHotelAvailabilityAsync(req, parsedCheckOut);
             if (res.Data != null)
             {
                 res.Data.Provider = Models.Provider.WebHotelier;
             }
 
             return res;
-        }
-
-        private static string CreateParty(int adults, string? children)
-        {
-            // Check if children is null or empty and build JSON accordingly
-            if (string.IsNullOrWhiteSpace(children))
-            {
-                return $"[{{\"adults\":{adults}}}]";
-            }
-            else
-            {
-                return $"[{{\"adults\":{adults},\"children\":[{children}]}}]";
-            }
         }
 
         // Method for multiple rooms
@@ -338,12 +347,12 @@ namespace TravelBridge.API.Endpoints
             {
                 var parameterDetails = new Dictionary<string, (string Description, object Example, bool Required)>
                 {
-                    { "checkin", ("The check-in date for the search (format: dd/MM/yyyy).", "15/06/2025", true) },
-                    { "checkOut", ("The check-out date for the search (format: dd/MM/yyyy).", "20/06/2025", true) },
+                    { "checkin", ("The check-in date for the search (format: dd/MM/yyyy).", "08/06/2025", true) },
+                    { "checkOut", ("The check-out date for the search (format: dd/MM/yyyy).", "10/06/2025", true) },
                     { "adults", ("The number of adults for the search. (only if 1 room)", 2, false) },
-                    { "children", ("The ages of children, comma-separated (e.g., '5,10'). (only if 1 room)", "5,10", false) },
+                    { "children", ("The ages of children, comma-separated (e.g., '5,10'). (only if 1 room)", "", false) },
                     { "rooms", ("The number of rooms required. (only if one room)", 1, false) },
-                    { "hotelId", ("The Hotel Id","1-VAROSRESID", true) },
+                    { "hotelId", ("The Hotel Id","1-VAROSVILL", true) },
                     { "party", ("Additional information about the party (required if more than 1 room. always wins).", "[{\"adults\":2,\"childrens\":[2,6]},{\"adults\":3}]", false) }
                 };
 

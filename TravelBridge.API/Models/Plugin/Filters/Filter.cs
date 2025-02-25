@@ -1,4 +1,4 @@
-﻿
+
 namespace TravelBridge.API.Models.Plugin.Filters
 {
     public class Filter
@@ -21,6 +21,11 @@ namespace TravelBridge.API.Models.Plugin.Filters
             Type = FilterType.values;
             Values = values;
             IsMultipleAND = isMultipleAnd;
+        }
+
+        public override string ToString()
+        {
+            return Name;
         }
 
         public bool IsMultipleAND { get; set; }

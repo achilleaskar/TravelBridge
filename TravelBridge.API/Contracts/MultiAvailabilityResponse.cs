@@ -1,19 +1,11 @@
-﻿using System.Text.Json.Serialization;
+using System.Text.Json.Serialization;
 using TravelBridge.API.Helpers.Converters;
+using TravelBridge.API.Models.WebHotelier;
 
 namespace TravelBridge.API.Contracts
 {
-    public class MultiAvailabilityResponse
+    public class MultiAvailabilityResponse : BaseWebHotelierResponse
     {
-        [JsonPropertyName("http_code")]
-        public int HttpCode { get; set; }
-
-        [JsonPropertyName("error_code")]
-        public string ErrorCode { get; set; }
-
-        [JsonPropertyName("error_msg")]
-        public string ErrorMsg { get; set; }
-
         [JsonPropertyName("data")]
         public Data Data { get; set; }
     }
@@ -24,7 +16,7 @@ namespace TravelBridge.API.Contracts
         public IEnumerable<WebHotel> Hotels { get; set; }
     }
 
-    public class WebHotel
+    public class WebHotel : BoardTextBase
     {
         [JsonPropertyName("code")]
         public string Code { internal get; set; }
@@ -57,68 +49,12 @@ namespace TravelBridge.API.Contracts
 
         [JsonPropertyName("type")]
         public string OriginalType { get; set; }
-       
-        [JsonPropertyName("hasBoards")]
-        public bool HasBoards { get; set; }
-
-        [JsonPropertyName("boardsText")]
-        public string BoardsText { get; set; }
-
-        [JsonPropertyName("boards")]
-        public List<Board> Boards { get; set; }
 
         [JsonPropertyName("mappedTypes")]
         public HashSet<string> MappedTypes { get; set; }
 
         [JsonPropertyName("rates")]
-        public List<Rate> Rates { get; set; }
-
-     
-
-        internal void SetBoardsText()
-        {
-            if (Boards == null || Boards.Count == 0)
-            {
-                BoardsText = "";
-                HasBoards = false;
-                return;
-            }
-
-            if (Boards.Any(b => b.Id == 0))
-            {
-            }
-
-            bool hasRoomOnly = Boards.Any(b => b.Id == 14);
-            if (hasRoomOnly && Boards.Count == 1)
-            {
-                BoardsText = "";
-                HasBoards = false;
-                return;
-            }
-
-            if (Boards.Count == 1)
-            {
-                BoardsText = "Διατροφή:";
-                HasBoards = true;
-                return;
-            }
-
-            if (hasRoomOnly)
-            {
-                BoardsText = "Επιλογές Διατροφής:";
-                HasBoards = true;
-                Boards.FirstOrDefault(b => b.Id == 14).Name+=" -  δεν θα φαινεται";
-                //Boards.RemoveAll(b => b.Id == 14);
-                return;
-            }
-
-            if (Boards.Count > 1)
-            {
-                BoardsText = "Επιλογές Διατροφής:";
-                HasBoards = true;
-                return;
-            }
-        }
+        public List<MultiRate> Rates { get; set; }
     }
 
     public class Board
@@ -142,31 +78,31 @@ namespace TravelBridge.API.Contracts
         public string Name { get; set; }
     }
 
-    public class Rate
+    public class MultiRate : BaseRate
     {
+        [JsonPropertyName("price")]
+        public decimal? Price { get; set; }
+
+        [JsonPropertyName("retail")]
+        public decimal? Retail { get; set; }
+
+        [JsonPropertyName("discount")]
+        public decimal? Discount { get; set; }
+
+        [JsonPropertyName("margin")]
+        public decimal? Margin { get; set; }
+
         //[JsonPropertyName("id")]
         //public int Id { get; set; }
 
-        [JsonPropertyName("type")]
-        public string Type { get; set; }
-
-        [JsonPropertyName("board")]
-        public int? Board { get; set; }
-
         //[JsonPropertyName("url")]
         //public string Url { get; set; }
-
-        [JsonPropertyName("room")]
-        public string Room { get; set; }
 
         //[JsonPropertyName("roomurl")]
         //public string RoomUrl { get; set; }
 
         //[JsonPropertyName("remaining")]
         //public int? Remaining { get; set; }
-
-        [JsonPropertyName("rate")]
-        public string RateName { get; set; }
 
         //[JsonPropertyName("rate_desc")]
         //public string RateDescription { get; set; }
@@ -192,47 +128,10 @@ namespace TravelBridge.API.Contracts
         //[JsonPropertyName("excluded_charges")]
         //public decimal? ExcludedCharges { get; set; }
 
-        [JsonPropertyName("price")]
-        public decimal? Price { get; set; }
-
-        [JsonPropertyName("retail")]
-        public decimal? Retail { get; set; }
-
-        [JsonPropertyName("discount")]
-        public decimal? Discount { get; set; }
-
-        [JsonPropertyName("margin")]
-        public decimal? Margin { get; set; }
-
-        [JsonPropertyName("payment_policy")]
-        public string PaymentPolicy { get; set; }
-
-        [JsonPropertyName("payment_policy_id")]
-        public int? PaymentPolicyId { get; set; }
-
-        [JsonPropertyName("cancellation_policy")]
-        public string CancellationPolicy { get; set; }
-
-        [JsonPropertyName("cancellation_policy_id")]
-        public int? CancellationPolicyId { get; set; }
-
-        [JsonPropertyName("cancellation_penalty")]
-        public string CancellationPenalty { get; set; }
-
-        [JsonConverter(typeof(NullableDateTimeConverter))]
-        [JsonPropertyName("cancellation_expiry")]
-        public DateTime? CancellationExpiry { get; set; }
-
-        //[JsonPropertyName("payments")]
-        //public IEnumerable<Payment> Payments { get; set; }
-
-        [JsonPropertyName("cancellation_fees")]
-        public IEnumerable<CancellationFee> CancellationFees { get; set; }
-
-        [JsonPropertyName("labels")]
-        public IEnumerable<Label> Labels { get; set; }
+        //[JsonPropertyName("cancellation_fees")]
+        //public IEnumerable<CancellationFee> CancellationFees { get; set; }
     }
-
+   
     //public class Payment
     //{
     //    [JsonPropertyName("due")]
@@ -242,22 +141,5 @@ namespace TravelBridge.API.Contracts
     //    public decimal? Amount { get; set; }
     //}
 
-    public class CancellationFee
-    {
-        [JsonConverter(typeof(NullableDateTimeConverter))]
-        [JsonPropertyName("after")]
-        public DateTime? After { get; set; }
 
-        [JsonPropertyName("fee")]
-        public decimal? Fee { get; set; }
-    }
-
-    public class Label
-    {
-        [JsonPropertyName("code")]
-        public string Code { get; set; }
-
-        [JsonPropertyName("title")]
-        public string Title { get; set; }
-    }
 }

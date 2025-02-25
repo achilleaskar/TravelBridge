@@ -1,37 +1,19 @@
-﻿using System.Text.Json.Serialization;
+using System.Text.Json.Serialization;
 using TravelBridge.API.Helpers.Converters;
 using TravelBridge.API.Models;
+using TravelBridge.API.Models.WebHotelier;
+using static System.Runtime.InteropServices.JavaScript.JSType;
 
 namespace TravelBridge.API.Contracts
 {
-    public class SingleAvailabilityData
+    public class SingleAvailabilityData : BaseWebHotelierResponse
     {
-        public int HttpCode { get; set; }
-
-        [JsonPropertyName("error_code")]
-        public string ErrorCode { get; set; }
-
-        [JsonPropertyName("error_msg")]
-        public string ErrorMessage { get; set; }
-
         [JsonPropertyName("data")]
         public HotelInfo Data { get; set; }
     }
 
-    public class HotelInfo
+    public class HotelInfo : BaseHotelInfo
     {
-        [JsonPropertyName("code")]
-        public string Code { internal get; set; }
-
-        [JsonIgnore]
-        public Provider Provider { get; set; }
-
-        public string Id => $"{(int)Provider}-{Code}";
-
-        [JsonPropertyName("name")]
-        public string Name { get; set; }
-
-
         [JsonPropertyName("location")]
         public Location Location { get; set; }
 
@@ -39,44 +21,13 @@ namespace TravelBridge.API.Contracts
         public List<HotelRate> Rates { get; set; }
     }
 
-    public class HotelRate
+    public class HotelRate : BaseRate
     {
         [JsonPropertyName("id")]
         public int Id { get; set; }
 
-        [JsonPropertyName("type")]
-        public string Type { get; set; }
-
-        [JsonPropertyName("room")]
-        public string RoomName { get; set; }
-
-        [JsonPropertyName("rate")]
-        public string RateName { get; set; }
-
         [JsonPropertyName("rate_desc")]
         public string RateDescription { get; set; }
-
-        [JsonPropertyName("payment_policy")]
-        public string PaymentPolicy { get; set; }
-
-        [JsonPropertyName("payment_policy_id")]
-        public int PaymentPolicyId { get; set; }
-
-        [JsonPropertyName("cancellation_policy")]
-        public string CancellationPolicy { get; set; }
-
-        [JsonPropertyName("cancellation_policy_id")]
-        public int CancellationPolicyId { get; set; }
-
-        [JsonPropertyName("cancellation_penalty")]
-        public string CancellationPenalty { get; set; }
-
-        [JsonConverter(typeof(NullableDateTimeConverter))]
-        [JsonPropertyName("cancellation_expiry")]
-        public DateTime? CancellationExpiry { get; set; }
-
-        [JsonPropertyName("board")]
-        public int BoardType { get; set; }
 
         [JsonPropertyName("pricing")]
         public PricingInfo Pricing { get; set; }
@@ -90,8 +41,48 @@ namespace TravelBridge.API.Contracts
         [JsonPropertyName("status_descr")]
         public string StatusDescription { get; set; }
 
-        [JsonPropertyName("labels")]
-        public List<RateLabel> Labels { get; set; }
+        [JsonPropertyName("remaining")]
+        public int? RemainingRooms { get; set; }
+
+        [JsonPropertyName("cancellation_fees")]
+        public IEnumerable<CancellationFee> CancellationFees { get; set; }
+
+        public decimal totalPrice;
+
+        internal decimal GetSalePrice()
+        {
+            decimal saleprice = Retail.TotalPrice + Retail.Discount;
+            if (saleprice > totalPrice + 5)
+            {
+                return saleprice;
+            }
+            return 0;
+        }
+
+        internal decimal GetTotalPrice()
+        {
+            var minMargin = Pricing.TotalPrice * 10 / 100;
+            if (Pricing.Margin < minMargin || (Retail.TotalPrice - Pricing.TotalPrice) < minMargin || Retail == null || Retail.TotalPrice == 0)
+            {
+                totalPrice = decimal.Floor(Pricing.TotalPrice + minMargin);
+                return totalPrice;
+            }
+            else
+            {
+                totalPrice = decimal.Floor(Retail.TotalPrice);
+                return totalPrice;
+            }
+        }
+        
+    }
+    public class CancellationFee
+    {
+        [JsonConverter(typeof(NullableDateTimeConverter))]
+        [JsonPropertyName("after")]
+        public DateTime? After { get; set; }
+
+        [JsonPropertyName("fee")]
+        public decimal? Fee { get; set; }
     }
 
     public class PricingInfo
@@ -113,17 +104,8 @@ namespace TravelBridge.API.Contracts
 
         [JsonPropertyName("discount")]
         public decimal Discount { get; set; }
-        
+
         [JsonPropertyName("margin")]
         public decimal Margin { get; set; }
-    }
-
-    public class RateLabel
-    {
-        [JsonPropertyName("code")]
-        public string Code { get; set; }
-
-        [JsonPropertyName("title")]
-        public string Title { get; set; }
     }
 }
