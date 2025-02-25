@@ -1,4 +1,4 @@
-﻿using System.Text.Json;
+using System.Text.Json;
 using TravelBridge.API.Contracts;
 using TravelBridge.API.Helpers.Extensions;
 using TravelBridge.API.Models;
@@ -89,8 +89,11 @@ namespace TravelBridge.API.Services.WebHotelier
                 foreach (WebHotel hotel in res?.Data.Hotels ?? [])
                 {
                     hotel.Id = $"{(int)Provider}-{hotel.Code}";
-                    hotel.MinPrice = Math.Ceiling(hotel.GetMinPrice(out decimal salePrice));
-                    hotel.SalePrice = salePrice;
+                    hotel.MinPrice = Math.Floor(hotel.GetMinPrice(out decimal salePrice));
+                    if (salePrice >= hotel.MinPrice + 5)
+                        hotel.SalePrice = salePrice;
+                    else
+                        hotel.SalePrice = 0;
                 }
 
                 return new PluginSearchResponse
@@ -173,7 +176,7 @@ namespace TravelBridge.API.Services.WebHotelier
         }
 
 
-        internal async Task<SingleAvailabilityResponse> GetHotelAvailabilityAsync(SingleAvailabilityRequest req)
+        internal async Task<SingleAvailabilityResponse> GetHotelAvailabilityAsync(SingleAvailabilityRequest req, DateTime checkout)
         {
             try
             {
@@ -184,18 +187,29 @@ namespace TravelBridge.API.Services.WebHotelier
 
                 // Send GET request
                 var response = await _httpClient.GetAsync(url);
-
-                response.EnsureSuccessStatusCode();
-
-                // Deserialize the response JSON
                 var jsonString = await response.Content.ReadAsStringAsync();
-                var res = JsonSerializer.Deserialize<SingleAvailabilityData>(jsonString) ?? throw new InvalidOperationException("No Results");
 
-                return res?.MapToResponse() ?? new SingleAvailabilityResponse { ErrorCode = "Empty", ErrorMessage = "No records found", Data = new SingleHotelAvailabilityInfo { Rooms = [] } };
+                if (response.IsSuccessStatusCode) // Check if response is an error
+                {
+                    // Deserialize the response JSON
+                    var res = JsonSerializer.Deserialize<SingleAvailabilityData>(jsonString) ?? throw new InvalidOperationException("No Results");
+
+                    return res?.MapToResponse(checkout) ?? new SingleAvailabilityResponse { ErrorCode = "Empty", ErrorMessage = "No records found", Data = new SingleHotelAvailabilityInfo { Rooms = [] } };
+                }
+                else
+                {
+                    var errorResponse = JsonSerializer.Deserialize<BaseWebHotelierResponse>(jsonString);
+
+                    if (errorResponse != null && errorResponse.ErrorCode == "INVALID_PARAM")
+                    {
+
+                    }
+                    return new SingleAvailabilityResponse { ErrorCode = errorResponse.ErrorCode, ErrorMessage = errorResponse.ErrorMessage, Data = new SingleHotelAvailabilityInfo { Rooms = [] } };
+                }
             }
             catch (HttpRequestException ex)
             {
-                throw new InvalidOperationException($"Error calling WebHotelier API: {ex.Message}", ex);
+                return new SingleAvailabilityResponse { ErrorCode = "Error", ErrorMessage = "Internal Error", Data = new SingleHotelAvailabilityInfo { Rooms = [] } };
             }
         }
     }

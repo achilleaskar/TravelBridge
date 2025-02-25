@@ -1,4 +1,4 @@
-﻿using System.Text.Json.Serialization;
+using System.Text.Json.Serialization;
 using TravelBridge.API.Models;
 
 namespace TravelBridge.API.Contracts
@@ -11,12 +11,11 @@ namespace TravelBridge.API.Contracts
         [JsonPropertyName("error_msg")]
         public string ErrorMsg { get; set; }
 
-
         [JsonPropertyName("data")]
         public HotelData Data { get; set; }
     }
 
-    public class HotelData
+    public class HotelData : BoardTextBase
     {
         private decimal salePrice;
 
@@ -27,7 +26,6 @@ namespace TravelBridge.API.Contracts
         public Provider Provider { get; set; }
 
         public decimal MinPrice { get; set; }
-
 
         public decimal SalePrice
         {
@@ -42,9 +40,6 @@ namespace TravelBridge.API.Contracts
         }
 
         public string CustomInfo { get; set; }
-
-        [JsonPropertyName("boardNames")]
-        public Dictionary<int, string> BoardNames { get; set; }
 
         [JsonPropertyName("mappedTypes")]
         public HashSet<string> MappedTypes { get; set; }
@@ -91,6 +86,49 @@ namespace TravelBridge.API.Contracts
 
         [JsonPropertyName("logourl")]
         public string LogoUrl { get; set; }
+
+        internal void SetBoardText()
+        {
+            if (Boards == null || Boards.Count == 0) 
+            {
+                BoardsText = "";
+                HasBoards = false;
+                return;
+            }
+
+            if (Boards.Any(b => b.Id == 0))
+            {
+            }
+
+            bool hasRoomOnly = Boards.Any(b => b.Id == 14);
+            if (hasRoomOnly && Boards.Count == 1)
+            {
+                Boards.First().Name = "Χωρίς επιλογές διατροφής";
+            }
+
+            if (Boards.Count == 1)
+            {
+                BoardsText = "Διατροφή:";
+                HasBoards = true;
+                return;
+            }
+
+            if (hasRoomOnly)
+            {
+                BoardsText = "Επιλογές Διατροφής:";
+                HasBoards = true;
+                Boards.FirstOrDefault(b => b.Id == 14).Name += " -  δεν θα φαινεται";
+                //Boards.RemoveAll(b => b.Id == 14);
+                return;
+            }
+
+            if (Boards.Count > 1)
+            {
+                BoardsText = "Επιλογές Διατροφής:";
+                HasBoards = true;
+                return;
+            }
+        }
     }
 
     //public class ContactInfo
@@ -151,7 +189,6 @@ namespace TravelBridge.API.Contracts
 
         [JsonPropertyName("checkin_time")]
         public string CheckinTime { get; set; }
-
     }
 
     //public class RoomInfo
@@ -172,5 +209,4 @@ namespace TravelBridge.API.Contracts
         [JsonPropertyName("large")]
         public string Large { get; set; }
     }
-
 }

@@ -1,30 +1,14 @@
-﻿using System.Text.Json.Serialization;
-using TravelBridge.API.Models;
+using TravelBridge.API.Models.WebHotelier;
 
 namespace TravelBridge.API.Contracts
 {
-    public class SingleAvailabilityResponse
+    public class SingleAvailabilityResponse : BaseWebHotelierResponse
     {
-        public int HttpCode { get; set; }
-
-        public string ErrorCode { get; set; }
-
-        public string ErrorMessage { get; set; }
-
         public SingleHotelAvailabilityInfo Data { get; set; }
     }
 
-    public class SingleHotelAvailabilityInfo
+    public class SingleHotelAvailabilityInfo : BaseHotelInfo
     {
-        public string Code { internal get; set; }
-
-        [JsonIgnore]
-        public Provider Provider { get; set; }
-
-        public string Id => $"{(int)Provider}-{Code}";
-
-        public string Name { get; set; }
-
         public Location Location { get; set; }
 
         public IEnumerable<SingleHotelRoom> Rooms { get; set; }
@@ -38,39 +22,44 @@ namespace TravelBridge.API.Contracts
 
         public List<SingleHotelRate> Rates { get; set; }
 
-        public int RatesCount { get;  set; }
+        public int RatesCount { get; set; }
     }
 
-    public class SingleHotelRate
+    public class SingleHotelRate : BaseBoard
     {
         public int Id { get; set; }
+        public PricingInfo Pricing { get; set; } // to be deleted
 
-        public string RateName { get; set; }
-
-        public string RateDescription { get; set; }
-
-        public string PaymentPolicy { get; set; }
-
-        public int PaymentPolicyId { get; set; }
-
-        public string CancellationPolicy { get; set; }
-
-        public int CancellationPolicyId { get; set; }
-
-        public string CancellationPenalty { get; set; }
-
-        public DateTime? CancellationExpiry { get; set; }
-
-        public int? BoardType { get; set; } 
-
-        public PricingInfo Pricing { get; set; }
-
-        public PricingInfo Retail { get; set; }
+        public PricingInfo Retail { get; set; } // to be deleted
 
         public string Status { get; set; }
 
         public string StatusDescription { get; set; }
 
-        public List<RateLabel> Labels { get; set; }
+        public IEnumerable<RateLabel> Labels { get; set; }
+        public int? RemainingRooms { get; set; }
+        public decimal TotalPrice { get; set; }
+        public decimal SalePrice { get; set; }
+        public RateProperties RateProperties { get; set; }
+        public string RateDescription { get; set; }
+    }
+
+    public class RateProperties
+    {
+        public string Board { get; set; }
+        public string RateName { get; set; }
+        public bool HasCancellation { get; set; } 
+        public string CancellationName { get; set; }
+        public string CancellationPenalty { get; set; }
+        public DateTime? CancellationExpiry { get; set; }
+        public bool HasBoard { get; set; }
+        public string CancellationPolicy { get; set; }
+        public List<StringAmount> CancellationFees { get; set; }
+    }
+
+    public class StringAmount
+    {
+        public string Description { get; set; }
+        public decimal Amount { get; set; }
     }
 }

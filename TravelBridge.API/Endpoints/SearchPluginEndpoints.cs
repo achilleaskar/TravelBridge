@@ -1,4 +1,4 @@
-﻿using System.Globalization;
+using System.Globalization;
 using System.Reflection;
 using System.Text.Json;
 using Microsoft.AspNetCore.Mvc;
@@ -136,6 +136,8 @@ namespace TravelBridge.API.Endpoints
 
         private async Task<PluginSearchResponse> GetSearchResults(SubmitSearchParameters pars)
         {
+            #region Param Validation
+
             if (!DateTime.TryParseExact(pars.checkin, "dd/MM/yyyy", CultureInfo.InvariantCulture, DateTimeStyles.None, out var parsedCheckin))
             {
                 throw new InvalidCastException("Invalid checkin date format. Use dd/MM/yyyy.");
@@ -172,6 +174,7 @@ namespace TravelBridge.API.Endpoints
             {
                 party = BuildMultiRoomJson(pars.party);
             }
+            #endregion
 
             MultiAvailabilityRequest req = new()
             {
@@ -197,11 +200,11 @@ namespace TravelBridge.API.Endpoints
             };
 
             res.SearchTerm = pars.searchTerm;
-
-            FillPriceFilter(res);
-            ApplyPriceFilters(res, pars);
-            FillFilters(res);
+            int nights = (parsedCheckOut - parsedCheckin).Days;
+            //ApplyPriceFilters(res, pars);
+            FillFilters(res, nights);
             ApplyFilters(res, pars);
+            SetBoardText(res);
             CalculateAppliedFilters(res);
             SetSelectedFilters(res, pars);
 
@@ -213,6 +216,14 @@ namespace TravelBridge.API.Endpoints
             res.ResultsCount = res?.Results?.Count() ?? 0;
 
             return res;
+        }
+
+        private void SetBoardText(PluginSearchResponse res)
+        {
+            foreach (var hotel in res.Results)
+            {
+                hotel.SetBoardsText();
+            }
         }
 
         private void SetSelectedFilters(PluginSearchResponse res, SubmitSearchParameters pars)
@@ -250,6 +261,12 @@ namespace TravelBridge.API.Endpoints
         private void ApplyFilters(PluginSearchResponse res, SubmitSearchParameters pars)
         {
             var allHotesls = res.Results.AsEnumerable();
+
+            if (pars.minPrice.HasValue)
+                allHotesls = allHotesls.Where(h => h.MinPrice >= pars.minPrice.Value);
+
+            if (pars.maxPrice.HasValue)
+                allHotesls = allHotesls.Where(h => h.MinPrice <= pars.maxPrice.Value);
 
             if (!string.IsNullOrWhiteSpace(pars.hotelTypes))
             {
@@ -298,24 +315,24 @@ namespace TravelBridge.API.Endpoints
                 {
                     foreach (var type in filter.Values)
                     {
-                        type.FilteredCount = res.Results.Count(h => h.Boards.Any(b => b.Id.ToString().Equals(type.Id) || (type.Id == "14" && b.Id == 0)));
+                        type.FilteredCount = res.Results.Count(h => h.Boards.Any(b => b.Id.ToString().Equals(type.Id)));
                     }
                 }
             }
         }
 
-        private void FillFilters(PluginSearchResponse res)
+        private void FillFilters(PluginSearchResponse res, int nights)
         {
-            res.Filters ??= new();
+            FillPriceFilter(res, nights);
             res.Filters.Add(GetRatings(res));
             res.Filters.Add(GetTypes(res));
             res.Filters.Add(GetBoards(res));
         }
 
-        private void FillPriceFilter(PluginSearchResponse res)
+        private void FillPriceFilter(PluginSearchResponse res, int nights)
         {
             res.Filters ??= new();
-            res.Filters.Add(new Filter("Ευρος Τιμής", "price", Math.Ceiling(res.Results.Min(h => h.MinPrice) ?? 0), Math.Ceiling(res.Results.Max(h => h.MinPrice) ?? 0), true));
+            res.Filters.Add(new Filter("Ευρος Τιμής", "price", Math.Floor(res.Results.Min(h => h.MinPrice) / nights ?? 0), Math.Floor(res.Results.Max(h => h.MinPrice) / nights ?? 0), true));
         }
 
         private static Filter GetBoards(PluginSearchResponse res)
@@ -323,8 +340,8 @@ namespace TravelBridge.API.Endpoints
             foreach (var hotel in res.Results)
             {
                 hotel.Boards = hotel.Rates.MapBoardTypes();
-                hotel.SetBoardsText();
             }
+
             var boardCounts = res.Results
                 .SelectMany(hotel => hotel.Boards)
                 .GroupBy(board => new { board.Id, board.Name });
@@ -374,7 +391,7 @@ namespace TravelBridge.API.Endpoints
                     Id = h.Key,
                     Name = h.Key,
                     Count = h.Value.Count
-                }).ToList(),
+                }).OrderByDescending(c => c.Count).ToList(),
                 false);
         }
 
@@ -633,7 +650,7 @@ namespace TravelBridge.API.Endpoints
                 { "maxPrice", ("max Price", "", false) },
                 { "hotelTypes", ("hotel Types", "", false) },
                 { "boardTypes", ("board Types", "", false) },
-                { "ratings", ("ratings", "", false) },
+                { "rating", ("rating", "", false) },
             };
 
             return details.ContainsKey(paramName) ? details[paramName] : ("No description available.", "N/A", false);

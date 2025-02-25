@@ -1,3 +1,5 @@
+using System.IO.Compression;
+using Microsoft.AspNetCore.ResponseCompression;
 using Microsoft.AspNetCore.Routing.Constraints;
 using Microsoft.Extensions.Options;
 using Microsoft.OpenApi.Models;
@@ -18,6 +20,18 @@ builder.Services.AddCors(options =>
               .AllowAnyHeader(); // Allow any header
     });
 });
+
+// Add response compression services
+builder.Services.AddResponseCompression(options =>
+{
+    options.EnableForHttps = true; // Enable compression for HTTPS requests
+    options.Providers.Add<GzipCompressionProvider>();
+});
+
+//builder.Services.Configure<GzipCompressionProviderOptions>(options =>
+//{
+//    options.Level = CompressionLevel.Fastest; // or CompressionLevel.Optimal
+//});
 
 builder.Services
     .AddOpenApi()
@@ -62,7 +76,7 @@ builder.Services.AddHttpClient("WebHotelierApi", (sp, client) =>
 {
     var options = sp.GetRequiredService<IOptions<WebHotelierApiOptions>>().Value;
     client.BaseAddress = new Uri(options.BaseUrl);
-    client.DefaultRequestHeaders.Accept.Add(new System.Net.Http.Headers.MediaTypeWithQualityHeaderValue("application/json")); 
+    client.DefaultRequestHeaders.Accept.Add(new System.Net.Http.Headers.MediaTypeWithQualityHeaderValue("application/json"));
     client.DefaultRequestHeaders.Add("Accept-Language", "el");
 
     // Add Basic Authentication header
@@ -82,6 +96,9 @@ builder.Services.AddScoped<HotelEndpoint>();
 
 // Register your service
 var app = builder.Build();
+
+app.UseResponseCompression();
+
 // Use the CORS policy
 app.UseCors("AllowAll");
 
