@@ -1,14 +1,27 @@
-using System.IO.Compression;
 using Microsoft.AspNetCore.ResponseCompression;
 using Microsoft.AspNetCore.Routing.Constraints;
+using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Options;
 using Microsoft.OpenApi.Models;
+using TravelBridge.API.DataBase;
 using TravelBridge.API.Endpoints;
 using TravelBridge.API.Models.Apis;
+using TravelBridge.API.Repositories;
 using TravelBridge.API.Services.ExternalServices;
+using TravelBridge.API.Services.Viva;
 using TravelBridge.API.Services.WebHotelier;
 
 var builder = WebApplication.CreateSlimBuilder(args);
+string? connectionString = builder.Configuration.GetConnectionString("MariaDBConnection");
+
+builder.Services.AddDbContext<AppDbContext>(options =>
+    options.UseMySql(
+        connectionString,
+        ServerVersion.Parse("10.11.10-MariaDB"),
+        mySqlOptions => {
+            mySqlOptions.EnableRetryOnFailure(3, TimeSpan.FromSeconds(10), null);
+        }
+    ));
 
 // Add CORS services
 builder.Services.AddCors(options =>
@@ -68,9 +81,19 @@ builder.Services.AddHttpClient("MapBoxApi", (sp, client) =>
     client.BaseAddress = new Uri(options.BaseUrl); // Use BaseUrl from appsettings.json
 });
 
+// Bind Viva section to VivaApiOptions
+builder.Services.Configure<VivaApiOptions>(builder.Configuration.GetSection("VivaApi"));
+
+// Register HttpClient with BaseAddress from configuration
+builder.Services.AddHttpClient("VivaApi", (sp, client) =>
+{
+    var options = sp.GetRequiredService<IOptions<VivaApiOptions>>().Value;
+    client.BaseAddress = new Uri(options.BaseUrl); // Use BaseUrl from appsettings.json
+});
+
+
 // Bind WebHotelierApi options
 builder.Services.Configure<WebHotelierApiOptions>(builder.Configuration.GetSection("WebHotelierApi"));
-
 // Configure HttpClient with Basic Authentication
 builder.Services.AddHttpClient("WebHotelierApi", (sp, client) =>
 {
@@ -91,7 +114,12 @@ builder.Services.AddScoped<MapBoxService>();
 builder.Services.AddScoped<WebHotelierPropertiesService>();
 builder.Services.AddScoped<SearchPluginEndpoints>();
 builder.Services.AddScoped<HotelEndpoint>();
+builder.Services.AddScoped<ReservationEndpoints>();
 
+builder.Services.AddScoped<VivaService>();
+builder.Services.AddScoped<VivaAuthService>();
+
+builder.Services.AddScoped<ReservationsRepository>();
 #region Register Endpoint Groups
 
 // Register your service
@@ -112,14 +140,16 @@ using (var scope = app.Services.CreateScope())
 
     var hotelEndpoints = serviceProvider.GetRequiredService<HotelEndpoint>();
     hotelEndpoints.MapEndpoints(app);
+
+    var reservationEndpoints = serviceProvider.GetRequiredService<ReservationEndpoints>();
+    reservationEndpoints.MapEndpoints(app);
 }
 
 #endregion Register Endpoint Groups
 
-if (app.Environment.IsDevelopment())
-{
+
     app.UseSwagger();
     app.UseSwaggerUI();
-}
+
 
 await app.RunAsync();

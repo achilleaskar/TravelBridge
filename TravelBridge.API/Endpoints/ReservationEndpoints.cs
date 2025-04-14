@@ -1,0 +1,633 @@
+using System.Globalization;
+using System.Reflection;
+using System.Text.Json;
+using Microsoft.AspNetCore.Mvc;
+using Microsoft.OpenApi.Models;
+using TravelBridge.API.Contracts;
+using TravelBridge.API.Helpers;
+using TravelBridge.API.Models;
+using TravelBridge.API.Models.ExternalModels;
+using TravelBridge.API.Models.WebHotelier;
+using TravelBridge.API.Repositories;
+using TravelBridge.API.Services.ExternalServices;
+using TravelBridge.API.Services.Viva;
+using TravelBridge.API.Services.WebHotelier;
+using static TravelBridge.API.Helpers.General;
+
+namespace TravelBridge.API.Endpoints
+{
+    public class ReservationEndpoints
+    {
+        private readonly WebHotelierPropertiesService webHotelierPropertiesService;
+        private readonly MapBoxService mapBoxService;
+
+        public ReservationEndpoints(WebHotelierPropertiesService webHotelierPropertiesService, MapBoxService mapBoxService)
+        {
+            this.webHotelierPropertiesService = webHotelierPropertiesService;
+            this.mapBoxService = mapBoxService;
+        }
+
+        public record SubmitSearchParameters
+        (
+            [FromQuery] string checkin,
+            [FromQuery] string checkOut,
+            [FromQuery] int? adults,
+            [FromQuery] string? children,
+            [FromQuery] string? party,
+            [FromQuery] string? hotelId,
+            [FromQuery] string? selectedRates
+        );
+
+        public record BookingRequest(
+               string HotelId,
+               string CheckIn,
+               string CheckOut,
+               int? Rooms,
+               string? Children,
+               int? Adults,
+               string? Party,
+               string? SelectedRates,
+               decimal? TotalPrice,
+               CustomerInfo? CustomerInfo
+           );
+
+
+        public record CustomerInfo(
+            string? Name,
+            string? LastName,
+            string? Email,
+            string? Phone,
+            string? Requests
+        );
+
+        public record PaymentInfo
+        (
+            string? Tid,
+            string OrderCode
+        );
+
+        public void MapEndpoints(IEndpointRouteBuilder app)
+        {
+            var apiGroup = app.MapGroup("/api/reservation");
+
+            apiGroup.MapGet("/checkout",
+            [EndpointSummary("Returns best matching locations that contain the provided search term")]
+            async ([AsParameters] SubmitSearchParameters pars) =>
+            await GetCheckoutInfo(pars))
+                .WithName("Checkout")
+                .WithOpenApi(CustomizeCheckoutOperation);
+
+            apiGroup.MapPost("/preparePayment",
+            [EndpointSummary("Creates Reservation On DB and prepares payment")]
+            async (BookingRequest pars, ReservationsRepository repo, VivaService viva) =>
+            await PreparePayment(pars, repo, viva))
+                .WithName("PreparePayment")
+                .WithOpenApi(CustomizePreparePaymentOperation);
+
+            apiGroup.MapPost("/paymentFailed",
+            [EndpointSummary("returns full reservation data")]
+            async (PaymentInfo pay, ReservationsRepository repo) =>
+            await GetOrderInfo(pay, repo))
+                .WithName("PaymentFailed")
+                .WithOpenApi(CustomizePaymentFailedOperation);
+
+            apiGroup.MapPost("/paymentSucceed",
+           [EndpointSummary("Confirms Payment and returns reservation basic data")]
+            async (PaymentInfo pay, ReservationsRepository repo, VivaService viva) =>
+           await ConfirmPayment(pay, repo, viva))
+               .WithName("PaymentSucceed")
+               .WithOpenApi(CustomizePaymentSucceedOperation);
+        }
+
+        private async Task<CheckoutResponse> GetOrderInfo(PaymentInfo pay, ReservationsRepository repo)
+        {
+            if (string.IsNullOrWhiteSpace(pay.OrderCode))
+            {
+                throw new ArgumentException("Invalid order code");
+            }
+
+            var reservation = await repo.GetFullReservationFromPaymentCode(pay.OrderCode)
+                ?? throw new InvalidOperationException("Reservation not found");
+
+            var payment = reservation.Payments.FirstOrDefault(p => p.OrderCode == pay.OrderCode)
+                ?? throw new InvalidOperationException("Payment not found");
+
+            await repo.UpdatePaymentFailed(payment);
+
+            var res = await GetCheckoutInfo(new SubmitSearchParameters(
+                reservation.CheckIn.ToString("dd/MM/yyyy"),
+                reservation.CheckOut.ToString("dd/MM/yyyy"),
+                null, null,
+                reservation.Party,
+                reservation.HotelCode,
+                JsonSerializer.Serialize(reservation.Rates.Select(r => new SelectedRate { rateId = r.RateId.ToString(), count = r.Quantity }))
+            ));
+
+            res.LabelErrorMessage = "Η πληρωμή απέτυχε. Παρακαλώ δοκιμάστε ξανά.";
+            res.ErrorCode = "PAY_FAILED";
+
+            return res;
+        }
+
+        private async Task<SuccessfullPaymentResponse> ConfirmPayment(PaymentInfo pay, ReservationsRepository repo, VivaService viva)
+        {
+            if (string.IsNullOrWhiteSpace(pay.OrderCode) || string.IsNullOrWhiteSpace(pay.Tid))
+            {
+                throw new ArgumentException("Invalid payment info");
+            }
+
+            var reservation = await repo.GetReservationBasicDataByPaymentCode(pay.OrderCode);
+            if (reservation == null)
+            {
+                return new SuccessfullPaymentResponse(error: "Reservation not found", "NO_RES");
+            }
+
+            if (await viva.ValidatePayment(pay.OrderCode, pay.Tid, reservation.TotalAmount) && await repo.UpdatePaymentSucceed(pay.OrderCode, pay.Tid))
+            {
+                await webHotelierPropertiesService.CreateBooking(reservation);
+
+                return new SuccessfullPaymentResponse
+                {
+                    CheckIn = reservation.CheckIn.ToString("dd/MM/yyyy"),
+                    CheckOut = reservation.CheckOut.ToString("dd/MM/yyyy"),
+                    HotelName = reservation.HotelName ?? "",
+                    ReservationId = reservation.Id
+                };
+            }
+            else
+            {
+                return new SuccessfullPaymentResponse(error: $"Υπήρξε πρόβλημα με την πληρωμή της κράτησής σας με αριθμό {reservation.Id}, παρακαλώ επικοινωνήστε μαζί μας.", "RES_ERROR");
+            }
+        }
+
+        private async Task<PreparePaymentResponse> PreparePayment(BookingRequest pars, ReservationsRepository repo, VivaService viva)
+        {
+            #region Param Validation
+
+            if (!DateTime.TryParseExact(pars.CheckIn, "dd/MM/yyyy", CultureInfo.InvariantCulture, DateTimeStyles.None, out var parsedCheckin))
+            {
+                throw new InvalidCastException("Invalid checkin date format. Use dd/MM/yyyy.");
+            }
+
+            if (!DateTime.TryParseExact(pars.CheckOut, "dd/MM/yyyy", CultureInfo.InvariantCulture, DateTimeStyles.None, out var parsedCheckOut))
+            {
+                throw new InvalidCastException("Invalid checkout date format. Use dd/MM/yyyy.");
+            }
+
+            List<SelectedRate>? rates;
+            if (string.IsNullOrWhiteSpace(pars.SelectedRates))
+            {
+                throw new InvalidCastException("Invalid selected rates");
+            }
+            else
+            {
+                rates = RatesToDict(pars.SelectedRates);
+                if (rates == null)
+                {
+                    throw new InvalidCastException("Invalid selected rates");
+                }
+            }
+
+            string party;
+            if (string.IsNullOrWhiteSpace(pars.Party))
+            {
+                if (pars.Adults == null || pars.Adults < 1)
+                {
+                    throw new ArgumentException("There must be at least one adult in the room.");
+                }
+
+                party = CreateParty(pars.Adults.Value, pars.Children);
+            }
+            else
+            {
+                party = BuildMultiRoomJson(pars.Party);
+            }
+
+            var hotelInfo = pars.HotelId?.Split('-');
+            if (hotelInfo?.Length != 2)
+            {
+                throw new ArgumentException("Invalid hotelId format. Use bbox-lat-lon.");
+            }
+
+            #endregion Param Validation
+
+            SingleAvailabilityRequest availReq = new()
+            {
+                CheckIn = parsedCheckin.ToString("yyyy-MM-dd"),
+                CheckOut = parsedCheckOut.ToString("yyyy-MM-dd"),
+                Party = party,
+                PropertyId = hotelInfo[1]
+            };
+
+            var hotelTask = webHotelierPropertiesService.GetHotelInfo(hotelInfo[1]);
+            var availTask = webHotelierPropertiesService.GetHotelAvailabilityAsync(availReq, parsedCheckin, rates);
+            Task.WaitAll(availTask, hotelTask);
+
+            SingleAvailabilityResponse? availRes = await availTask;
+            HotelInfoResponse? hotelRes = await hotelTask;
+
+            if (availRes.Data != null)
+            {
+                availRes.Data.Provider = Provider.WebHotelier;
+            }
+
+            int nights = (parsedCheckOut - parsedCheckin).Days;
+
+            var res = new CheckoutResponse
+            {
+                HotelData = new CheckoutHotelInfo
+                {
+                    Id = hotelRes.Data.Id,
+                },
+                CheckIn = pars.CheckIn,
+                CheckOut = pars.CheckOut,
+                Rooms = GetDistinctRoomsPerRate(availRes.Data?.Rooms)
+            };
+
+            foreach (var selectedRate in rates)
+            {
+                bool found = false;
+                foreach (var room in availRes.Data?.Rooms ?? [])
+                {
+                    foreach (var rate in room.Rates)
+                    {
+                        if (selectedRate.roomId != null && selectedRate.rateId == null)
+                        {
+                            selectedRate.rateId = selectedRate.roomId;
+                        }
+                        if (rate.Id.ToString().Equals(selectedRate.rateId) && rate.RemainingRooms >= selectedRate.count)
+                        {
+                            if (res.Rooms.FirstOrDefault(r => r.RateId.ToString().Equals(selectedRate.rateId)) is CheckoutRoomInfo cri)
+                            {
+                                cri.SelectedQuantity = selectedRate.count;
+                            }
+                            else
+                                throw new InvalidOperationException("Rates don't exist any more");
+
+                            found = true;
+                            break;
+                        }
+                    }
+                    if (found)
+                    {
+                        break;
+                    }
+                }
+                if (!found)
+                {
+                    throw new InvalidOperationException("Rates don't exist any more");
+                }
+            }
+
+            res.TotalPrice = res.Rooms.Sum(r => (r.TotalPrice * r.SelectedQuantity));
+
+            if (res.TotalPrice != pars.TotalPrice)
+            {
+                throw new InvalidOperationException("Price has changed");
+            }
+
+            var payment = new VivaPaymentRequest
+            {
+                Amount = (int)(res.TotalPrice * 100),
+                CustomerTrns = $"reservation for {parsedCheckin:dd_MM_yy}-{parsedCheckOut:dd_MM_yy} in {res.HotelData.Name}",
+                Customer = new VivaCustomer
+                {
+                    CountryCode = "GR",
+                    Email = pars.CustomerInfo?.Email,
+                    FullName = $"{pars.CustomerInfo?.Name} {pars.CustomerInfo?.LastName}",
+                    Phone = pars.CustomerInfo?.Phone
+                },
+                MerchantTrns = $"reservation for {parsedCheckin:dd_MM_yy}-{parsedCheckOut:dd_MM_yy} in {res.HotelData.Name}"
+            };
+
+            var orderCode = await viva.GetPaymentCode(payment);
+
+            await repo.CreateTemporaryExternalReservation(res, pars, parsedCheckin, parsedCheckOut, payment, orderCode, party);
+
+            PreparePaymentResponse response = new()
+            {
+                OrderCode = orderCode
+            };
+            return response;
+        }
+
+        private async Task<CheckoutResponse> GetCheckoutInfo(SubmitSearchParameters pars)
+        {
+            #region Param Validation
+
+            if (!DateTime.TryParseExact(pars.checkin, "dd/MM/yyyy", CultureInfo.InvariantCulture, DateTimeStyles.None, out var parsedCheckin))
+            {
+                throw new InvalidCastException("Invalid checkin date format. Use dd/MM/yyyy.");
+            }
+
+            if (!DateTime.TryParseExact(pars.checkOut, "dd/MM/yyyy", CultureInfo.InvariantCulture, DateTimeStyles.None, out var parsedCheckOut))
+            {
+                throw new InvalidCastException("Invalid checkout date format. Use dd/MM/yyyy.");
+            }
+
+            List<SelectedRate>? Selectedrates;
+            if (string.IsNullOrWhiteSpace(pars.selectedRates))
+            {
+                throw new InvalidCastException("Invalid selected rates");
+            }
+            else
+            {
+                Selectedrates = RatesToDict(pars.selectedRates);
+                if (Selectedrates == null)
+                {
+                    throw new InvalidCastException("Invalid selected rates");
+                }
+            }
+
+            string party;
+            if (string.IsNullOrWhiteSpace(pars.party))
+            {
+                if (pars.adults == null || pars.adults < 1)
+                {
+                    throw new ArgumentException("There must be at least one adult in the room.");
+                }
+
+                party = CreateParty(pars.adults.Value, pars.children);
+            }
+            else
+            {
+                party = BuildMultiRoomJson(pars.party);
+            }
+
+            var hotelInfo = pars.hotelId?.Split('-');
+            if (hotelInfo?.Length != 2)
+            {
+                throw new ArgumentException("Invalid hotelId format. Use bbox-lat-lon.");
+            }
+
+            #endregion Param Validation
+
+            SingleAvailabilityRequest availReq = new()
+            {
+                CheckIn = parsedCheckin.ToString("yyyy-MM-dd"),
+                CheckOut = parsedCheckOut.ToString("yyyy-MM-dd"),
+                Party = party,
+                PropertyId = hotelInfo[1]
+            };
+
+            var hotelTask = webHotelierPropertiesService.GetHotelInfo(hotelInfo[1]);
+            var availTask = webHotelierPropertiesService.GetHotelAvailabilityAsync(availReq, parsedCheckin, Selectedrates);
+            Task.WaitAll(availTask, hotelTask);
+
+            SingleAvailabilityResponse? availRes = await availTask;
+            HotelInfoResponse? hotelRes = await hotelTask;
+
+            if (availRes.Data != null)
+            {
+                availRes.Data.Provider = Provider.WebHotelier;
+            }
+
+            hotelRes.Data.Provider = Provider.WebHotelier;
+
+            int nights = (parsedCheckOut - parsedCheckin).Days;
+
+            var res = new CheckoutResponse
+            {
+                ErrorCode = hotelRes.ErrorCode,
+                LabelErrorMessage = hotelRes.ErrorMsg,
+                HotelData = new CheckoutHotelInfo
+                {
+                    Id = hotelRes.Data.Id,
+                    Name = hotelRes.Data.Name,
+                    Image = hotelRes.Data.LargePhotos.FirstOrDefault() ?? "",
+                    Operation = hotelRes.Data.Operation,
+                    Rating = hotelRes.Data.Rating
+                },
+                CheckIn = pars.checkin,
+                CheckOut = pars.checkOut,
+                Nights = nights,
+                Rooms = GetDistinctRoomsPerRate(availRes.Data?.Rooms),
+                SelectedPeople = GetPartyInfo(party)
+            };
+
+            foreach (var selectedRate in Selectedrates)
+            {
+                bool found = false;
+                foreach (var room in availRes.Data?.Rooms ?? [])
+                {
+                    foreach (var rate in room.Rates)
+                    {
+                        if (selectedRate.roomId != null && selectedRate.rateId == null)
+                        {
+                            selectedRate.rateId = selectedRate.roomId;
+                        }
+                        if (rate.Id.ToString().Equals(selectedRate.rateId) && rate.RemainingRooms >= selectedRate.count)
+                        {
+                            if (res.Rooms.FirstOrDefault(r => r.RateId.ToString().Equals(selectedRate.rateId)) is CheckoutRoomInfo cri)
+                            {
+                                cri.SelectedQuantity = selectedRate.count;
+                            }
+                            else
+                                throw new InvalidOperationException("Rates don't exist any more");
+
+                            found = true;
+                            break;
+                        }
+                    }
+                    if (found)
+                    {
+                        break;
+                    }
+                }
+                if (!found)
+                {
+                    throw new InvalidOperationException("Rates don't exist any more");
+                }
+            }
+            res.MergePayments(Selectedrates);
+            res.TotalPrice = res.Rooms.Sum(r => (r.TotalPrice * r.SelectedQuantity));
+
+            return res;
+        }
+ 
+        private string GetPartyInfo(string party)
+        {
+            try
+            {
+                var partyList = JsonSerializer.Deserialize<List<PartyItem>>(party);
+
+                List<string> response = [];
+                if (!partyList.IsNullOrEmpty())
+                {
+                    var adults = partyList!.Sum(p => p.adults);
+                    var childs = partyList!.Sum(p => p.children?.Length ?? 0);
+                    if (adults > 0)
+                        response.Add($"{adults} ενήλικες");
+                    if (childs > 0)
+                        response.Add($"{adults} παιδιά");
+                    if (partyList!.Count == 1)
+                        response.Add($"{partyList.Count} δωμάτιο");
+                    else
+                        response.Add($"{partyList.Count} δωμάτια");
+                }
+                return string.Join(", ", response);
+            }
+            catch (Exception)
+            {
+                return "Σφάλμα";
+            }
+        }
+
+        private List<CheckoutRoomInfo> GetDistinctRoomsPerRate(IEnumerable<SingleHotelRoom>? rooms)
+        {
+            if (rooms.IsNullOrEmpty())
+            {
+                return [];
+            }
+            List<CheckoutRoomInfo> results = new();
+            foreach (var room in rooms)
+            {
+                foreach (var rate in room.Rates)
+                {
+                    results.Add(new CheckoutRoomInfo
+                    {
+                        Type = room.Type,
+                        RoomName = room.RoomName,
+                        RateId = rate.Id,
+                        SelectedQuantity = 0,
+                        TotalPrice = rate.TotalPrice,
+                        RateProperties = new CheckoutRateProperties
+                        {
+                            Board = rate.RateProperties.Board,
+                            BoardId = rate.BoardType,
+                            HasBoard = !NoboardIds.Contains(rate.BoardType ?? 0),
+                            CancellationExpiry = rate.RateProperties.CancellationExpiry,
+                            CancellationName = rate.RateProperties.CancellationName,
+                            HasCancellation = rate.RateProperties.HasCancellation,
+                            CancellationFees = rate.RateProperties.CancellationFees,
+                            Payments = rate.RateProperties.Payments,
+                        }
+                    });
+                }
+            }
+
+            return results;
+        }
+
+        private static (string Description, object Example, bool Required) GetParameterDetails(string paramName)
+        {
+            var details = new Dictionary<string, (string Description, object Example, bool Required)>
+            {
+                { "checkin", ("The check-in date for the search (format: dd/MM/yyyy).", "08/06/2025", true) },
+                { "checkOut", ("The check-out date for the search (format: dd/MM/yyyy).", "10/06/2025", true) },
+                { "adults", ("The number of adults for the search. (only if 1 room)", 2, false) },
+                { "children", ("The ages of children, comma-separated (e.g., '5,10'). (only if 1 room)", "5,10", false) },
+                { "party", ("Additional information about the party (required if more than 1 room. always wins).", "[{\"adults\":2,\"children\":[2,6]},{\"adults\":3}]", false) },
+                { "hotelId", ("The id of the hotel", "1-VAROSVILL", true) },
+                { "selectedRates", ("The selected rates", "[{\"roomId\":\"328000\",\"count\":1,\"roomType\":\"NGSTDS\"},{\"roomId\":\"273065\",\"count\":1,\"roomType\":\"JSUI\"}]", true) },
+            };
+
+            return details.TryGetValue(paramName, out (string Description, object Example, bool Required) value) ? value : ("No description available.", "N/A", false);
+        }
+
+        private static OpenApiOperation CustomizePreparePaymentOperation(OpenApiOperation operation)
+        {
+            if (operation.RequestBody?.Content.ContainsKey("application/json") == true)
+            {
+                operation.RequestBody.Content["application/json"].Example = new Microsoft.OpenApi.Any.OpenApiString(
+                """
+                {
+                    "hotelId": "1-VAROSVILL",
+                    "checkIn": "08/06/2025",
+                    "checkOut": "10/06/2025",
+                    "rooms": 1,
+                    "children": "0",
+                    "adults": 2,
+                    "TotalPrice": 1224,
+                    "party": "[{\"adults\":2,\"children\":[2,6]},{\"adults\":3}]",
+                    "selectedRates":"[{\"roomId\":\"328000\",\"count\":1,\"roomType\":\"NGSTDS\"},{\"roomId\":\"273065\",\"count\":1,\"roomType\":\"JSUI\"}]",
+                    "customerInfo": {
+                        "name": "akis",
+                        "lastName": "pakis",
+                        "email": "aa@aa.com",
+                        "phone": "6977771645",
+                        "requests": "dadadadadad"
+                    }
+                }
+                """
+                );
+            }
+
+            return operation;
+        }
+        private static OpenApiOperation CustomizePaymentFailedOperation(OpenApiOperation operation)
+        {
+            if (operation.RequestBody?.Content.ContainsKey("application/json") == true)
+            {
+                operation.RequestBody.Content["application/json"].Example = new Microsoft.OpenApi.Any.OpenApiString(
+                """
+                    {
+                      "orderCode":"1902628168872600"
+                    }
+                    """
+                );
+            }
+
+            return operation;
+        }
+        private static OpenApiOperation CustomizePaymentSucceedOperation(OpenApiOperation operation)
+        {
+            if (operation.RequestBody?.Content.ContainsKey("application/json") == true)
+            {
+                operation.RequestBody.Content["application/json"].Example = new Microsoft.OpenApi.Any.OpenApiString(
+                """
+                    {
+                        "tid":"7d8c9308-26b1-45d6-a8a8-bdc39d1b3b71",
+                        "orderCode":"6471498898772606"
+                    }
+                    """
+                );
+            }
+
+            return operation;
+        }
+
+
+        private static OpenApiOperation CustomizeCheckoutOperation(OpenApiOperation operation)
+        {
+            if (operation.Parameters != null && operation.Parameters.Count > 0)
+            {
+                // Dynamically extract properties from the record
+                var recordProperties = typeof(SubmitSearchParameters).GetProperties();
+
+                foreach (var property in recordProperties)
+                {
+                    var param = operation.Parameters.FirstOrDefault(p => p.Name.Equals(property.Name, StringComparison.OrdinalIgnoreCase));
+                    if (param != null)
+                    {
+                        var queryAttr = property.GetCustomAttribute<FromQueryAttribute>();
+                        var paramName = queryAttr?.Name ?? property.Name; // Use query parameter name if provided
+
+                        // Provide descriptions and examples dynamically
+                        var details = GetParameterDetails(paramName);
+
+                        param.Description = details.Description;
+                        param.Example = new Microsoft.OpenApi.Any.OpenApiString(details.Example?.ToString() ?? "");
+                        param.Required = details.Required;
+                    }
+                }
+            }
+
+            // Add response descriptions
+            operation.Responses.TryAdd("400", new OpenApiResponse
+            {
+                Description = "Bad request. One or more parameters are invalid or missing."
+            });
+
+            operation.Responses.TryAdd("500", new OpenApiResponse
+            {
+                Description = "Internal server error. Something went wrong on the server."
+            });
+
+            return operation;
+        }
+
+        // Helper function for parameter details
+
+    }
+}

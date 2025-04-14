@@ -1,5 +1,4 @@
 using System.Globalization;
-using System.Text.Json;
 using Microsoft.OpenApi.Models;
 using TravelBridge.API.Contracts;
 using TravelBridge.API.Helpers;
@@ -23,29 +22,29 @@ namespace TravelBridge.API.Endpoints
 
             apiGroup.MapGet("/hotelInfo",
            [EndpointSummary("Returns info of the selected hotel")]
-            (string HotelId) =>
-           GetHotelInfo(HotelId))
+            async (string HotelId) =>
+            await GetHotelInfo(HotelId))
                .WithName("HotelInfo")
                .WithOpenApi(CustomizeGetHotelInfoOperation);
 
             apiGroup.MapGet("/roomInfo",
                       [EndpointSummary("Returns info of the selected hotel")]
-            (string HotelId, string RoomId) =>
-                      GetRoomInfo(HotelId, RoomId))
+            async (string HotelId, string RoomId) =>
+            await GetRoomInfo(HotelId, RoomId))
                           .WithName("RoomInfo")
                           .WithOpenApi(CustomizeGetRoomInfoOperation);
 
             apiGroup.MapGet("/hotelRoomAvailability",
            [EndpointSummary("Returns availability of the selected hotel")]
-            (string checkin, string checkOut, int? adults, string? children, int? rooms, string? party, string hotelId) =>
-           GetHotelAvailability(checkin, checkOut, adults, children, rooms, party, hotelId))
+            async (string checkin, string checkOut, int? adults, string? children, int? rooms, string? party, string hotelId) =>
+            await GetHotelAvailability(checkin, checkOut, adults, children, rooms, party, hotelId))
                .WithName("HotelRoomAvailability")
                .WithOpenApi(CustomizeGetHotelAvailabilityOperation);
 
             apiGroup.MapGet("/HotelFullInfo",
            [EndpointSummary("Returns full info for the selected hotel")]
-            (string checkin, string checkOut, int? adults, string? children, int? rooms, string? party, string hotelId) =>
-           GetHotelFullInfo(checkin, checkOut, adults, children, rooms, party, hotelId))
+           async (string checkin, string checkOut, int? adults, string? children, int? rooms, string? party, string hotelId) =>
+           await GetHotelFullInfo(checkin, checkOut, adults, children, rooms, party, hotelId))
                .WithName("HotelFullInfo")
                .WithOpenApi(CustomizeGetHotelAvailabilityOperation);
         }
@@ -71,7 +70,6 @@ namespace TravelBridge.API.Endpoints
         public async Task<HotelInfoFullResponse> GetHotelFullInfo(string checkin, string checkOut, int? adults, string? children, int? rooms, string? party, string hotelId)
         {
             #region Params Validation
-
 
             if (string.IsNullOrWhiteSpace(hotelId))
             {
@@ -110,9 +108,10 @@ namespace TravelBridge.API.Endpoints
             }
             else
             {
-                party = BuildMultiRoomJson(party);
+                party = General.BuildMultiRoomJson(party);
             }
-            #endregion
+
+            #endregion Params Validation
 
             SingleAvailabilityRequest availReq = new()
             {
@@ -122,7 +121,7 @@ namespace TravelBridge.API.Endpoints
                 PropertyId = hotelInfo[1]
             };
 
-            var availTask = webHotelierPropertiesService.GetHotelAvailabilityAsync(availReq, parsedCheckOut);
+            var availTask = webHotelierPropertiesService.GetHotelAvailabilityAsync(availReq, parsedCheckin);
             var hotelTask = webHotelierPropertiesService.GetHotelInfo(hotelInfo[1]);
             Task.WaitAll(availTask, hotelTask);
 
@@ -172,7 +171,6 @@ namespace TravelBridge.API.Endpoints
                     <li><strong>Check-out Time:</strong> {operation.CheckoutTime}</li>
                   </ul>";
         }
-
 
         private async Task<RoomInfoRespone> GetRoomInfo(string hotelId, string roomId)
         {
@@ -232,9 +230,10 @@ namespace TravelBridge.API.Endpoints
             }
             else
             {
-                party = BuildMultiRoomJson(party);
+                party = General.BuildMultiRoomJson(party);
             }
-            #endregion
+
+            #endregion Params Validation
 
             SingleAvailabilityRequest req = new()
             {
@@ -244,7 +243,7 @@ namespace TravelBridge.API.Endpoints
                 PropertyId = hotelInfo[1]
             };
 
-            var res = await webHotelierPropertiesService.GetHotelAvailabilityAsync(req, parsedCheckOut);
+            var res = await webHotelierPropertiesService.GetHotelAvailabilityAsync(req, parsedCheckin);
             if (res.Data != null)
             {
                 res.Data.Provider = Models.Provider.WebHotelier;
@@ -254,21 +253,6 @@ namespace TravelBridge.API.Endpoints
         }
 
         // Method for multiple rooms
-        public static string BuildMultiRoomJson(string party)
-        {
-            // Validate and return the party JSON
-            try
-            {
-                // Attempt to parse to ensure the input is valid JSON
-                JsonSerializer.Deserialize<List<Dictionary<string, object>>>(party);
-            }
-            catch (JsonException ex)
-            {
-                throw new ArgumentException("Invalid party data format. Ensure it's valid JSON.", ex);
-            }
-
-            return party;
-        }
 
         private static OpenApiOperation CustomizeGetHotelInfoOperation(OpenApiOperation operation)
         {
@@ -299,6 +283,7 @@ namespace TravelBridge.API.Endpoints
             });
             return operation;
         }
+
         private static OpenApiOperation CustomizeGetRoomInfoOperation(OpenApiOperation operation)
         {
             // Customize the query parameter in Swagger
@@ -347,13 +332,13 @@ namespace TravelBridge.API.Endpoints
             {
                 var parameterDetails = new Dictionary<string, (string Description, object Example, bool Required)>
                 {
-                    { "checkin", ("The check-in date for the search (format: dd/MM/yyyy).", "08/06/2025", true) },
-                    { "checkOut", ("The check-out date for the search (format: dd/MM/yyyy).", "10/06/2025", true) },
+                    { "checkin", ("The check-in date for the search (format: dd/MM/yyyy).", "15/06/2025", true) },
+                    { "checkOut", ("The check-out date for the search (format: dd/MM/yyyy).", "20/06/2025", true) },
                     { "adults", ("The number of adults for the search. (only if 1 room)", 2, false) },
                     { "children", ("The ages of children, comma-separated (e.g., '5,10'). (only if 1 room)", "", false) },
                     { "rooms", ("The number of rooms required. (only if one room)", 1, false) },
                     { "hotelId", ("The Hotel Id","1-VAROSVILL", true) },
-                    { "party", ("Additional information about the party (required if more than 1 room. always wins).", "[{\"adults\":2,\"childrens\":[2,6]},{\"adults\":3}]", false) }
+                    { "party", ("Additional information about the party (required if more than 1 room. always wins).", "[{\"adults\":2,\"children\":[2,6]},{\"adults\":3}]", false) }
                 };
 
                 foreach (var paramName in parameterDetails.Keys)

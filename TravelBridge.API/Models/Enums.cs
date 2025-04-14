@@ -1,4 +1,4 @@
-﻿using System.ComponentModel;
+using System.ComponentModel;
 
 namespace TravelBridge.API.Models
 {
@@ -26,6 +26,23 @@ namespace TravelBridge.API.Models
         WebHotelier = 1
     }
 
+    public enum PaymentProvider
+    {
+        [Description("Viva")]
+        Viva = 1
+    }
+
+
+    public enum PaymentStatus
+    {
+        [Description("Pending")]
+        Pending = 1,
+        [Description("Success")]
+        Success = 2,
+        [Description("Failed")]
+        Failed = 3
+    }
+     
     public enum FilterType
     {
         [Description("Range")]

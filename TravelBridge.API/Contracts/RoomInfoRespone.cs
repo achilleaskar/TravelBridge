@@ -37,11 +37,11 @@ namespace TravelBridge.API.Contracts
         public IEnumerable<string> LargePhotos { get; set; }
         public IEnumerable<string> MediumPhotos { get; set; }
 
-        [JsonPropertyName("location")]
-        public LocationInfo Location { get; set; }
+        //[JsonPropertyName("location")]
+        //public LocationInfo Location { get; set; }
 
-        [JsonPropertyName("active")]
-        public bool IsActive { get; set; }
+        //[JsonPropertyName("active")]
+        //public bool IsActive { get; set; }
     }
 
     public class RoomCapacity
@@ -65,21 +65,21 @@ namespace TravelBridge.API.Contracts
         public bool CountInfant { get; set; }
     }
 
-    public class RoomPhoto
-    {
-        [JsonPropertyName("title")]
-        public string Title { get; set; }
+    //public class RoomPhoto
+    //{
+    //    [JsonPropertyName("title")]
+    //    public string Title { get; set; }
 
-        [JsonPropertyName("xsmall")]
-        public string XSmall { get; set; }
+    //    [JsonPropertyName("xsmall")]
+    //    public string XSmall { get; set; }
 
-        [JsonPropertyName("small")]
-        public string Small { get; set; }
+    //    [JsonPropertyName("small")]
+    //    public string Small { get; set; }
 
-        [JsonPropertyName("medium")]
-        public string Medium { get; set; }
+    //    [JsonPropertyName("medium")]
+    //    public string Medium { get; set; }
 
-        [JsonPropertyName("large")]
-        public string Large { get; set; }
-    }
+    //    [JsonPropertyName("large")]
+    //    public string Large { get; set; }
+    //}
 }
