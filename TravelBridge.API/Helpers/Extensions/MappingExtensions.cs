@@ -56,15 +56,16 @@ namespace TravelBridge.API.Helpers.Extensions
             return minRate.Retail.TotalPrice;
         }
 
-        private static int[] noboardIds = new int[] { 0, 14 };
-
-        public static SingleAvailabilityResponse? MapToResponse(this SingleAvailabilityData data, DateTime checkout)
+        public static SingleAvailabilityResponse? MapToResponse(this SingleAvailabilityData data, DateTime checkin)
         {
             if (data?.Data == null)
             {
                 return null;
             }
 
+
+
+            //TODO: use request dateTime to avoid change of date issue
             return new SingleAvailabilityResponse
             {
                 HttpCode = data.HttpCode,
@@ -83,34 +84,40 @@ namespace TravelBridge.API.Helpers.Extensions
                         RatesCount = r.Count(),
                         Rates = r.Select(rate => new SingleHotelRate
                         {
+                            TotalPrice = rate.GetTotalPrice(),
+                            SalePrice = rate.GetSalePrice(),
                             Id = rate.Id,
                             RateProperties = new RateProperties
                             {
                                 RateName = rate.RateName,
                                 Board = rate.BoardType?.MapBoardType(Language.el) ?? "Χωρίς διατροφή",
-                                CancellationExpiry = rate.CancellationExpiry,
+                                CancellationExpiry = rate.CancellationExpiry?.ToString("dd/MM/yyyy HH:mm"),
                                 CancellationName = rate.CancellationExpiry == null ? "Χωρίς δωρεάν ακύρωση" : "Δωρεάν ακύρωση",
-                                CancellationPenalty = rate.CancellationPenalty, 
+                                CancellationPenalty = rate.CancellationPenalty,
                                 CancellationPolicy = rate.CancellationPolicy,
-                                CancellationFees = rate.CancellationFees.ToList().MapToList(checkout),
+                                CancellationFeesOr = rate.CancellationFees,
+                                PaymentsOr = rate.Payments?.Select(a => new PaymentWH { Amount = a.Amount, DueDate = a.DueDate }).ToList() ?? new List<PaymentWH>(),
+                                CancellationFees = rate.CancellationFees.ToList().MapToList(checkin, rate),
+                                Payments = rate.Payments ?? new List<PaymentWH>(),
+                                PartialPayment = Helpers.General.FillPartialPayment(rate.Payments),
                                 HasCancellation = rate.CancellationExpiry != null,
-                                HasBoard = !noboardIds.Contains(rate.BoardType ?? 0)
+                                HasBoard = !General.NoboardIds.Contains(rate.BoardType ?? 0)
                             },
                             RateDescription = rate.RateDescription,
-                            Labels = rate.Labels,
+                            //Labels = rate.Labels,
                             Retail = rate.Retail,
                             Pricing = rate.Pricing,
                             BoardType = rate.BoardType,
-                            Status = rate.Status,
-                            StatusDescription = rate.StatusDescription,
-                            RemainingRooms = rate.RemainingRooms,
-                            TotalPrice = rate.GetTotalPrice(),
-                            SalePrice = rate.GetSalePrice()
+                            //Status = rate.Status,
+                            //StatusDescription = rate.StatusDescription,
+                            RemainingRooms = rate.RemainingRooms
                         }).ToList()
-                    })
+                    }).ToList()
                 }
             };
         }
+
+        
 
         private static Dictionary<string, List<string>> categoryMapping = new()
         {
@@ -128,7 +135,7 @@ namespace TravelBridge.API.Helpers.Extensions
                 { "Hotel", new List<string> { "hotel"} }
             };
 
-        public static List<StringAmount> MapToList(this IEnumerable<CancellationFee> cancellationFees, DateTime checkOut)
+        public static List<StringAmount> MapToList(this IEnumerable<CancellationFee> cancellationFees, DateTime checkIn, HotelRate rate)
         {
             var result = new List<StringAmount>();
             if (cancellationFees == null || !cancellationFees.Any())
@@ -137,26 +144,12 @@ namespace TravelBridge.API.Helpers.Extensions
             var fees = cancellationFees.OrderBy(c => c.After).ToList();
             CancellationFee? previous = null;
 
-            string timeZoneId = RuntimeInformation.IsOSPlatform(OSPlatform.Windows) ? "GTB Standard Time" : "Europe/Athens";
-
-            // Determine Greek time offset dynamically
-            TimeZoneInfo greekTimeZone;
-            try
-            {
-                greekTimeZone = TimeZoneInfo.FindSystemTimeZoneById(timeZoneId);
-            }
-            catch (TimeZoneNotFoundException)
-            {
-                greekTimeZone = TimeZoneInfo.Local; // Fallback to system time
-            }
-            int offset = (int)greekTimeZone.GetUtcOffset(DateTime.UtcNow).TotalHours;
-
             // Ensure today exists or add an initial entry for the first cancellation date
-            if (fees.First().After?.Date > DateTime.Today)
+            if (fees.First().After?.Date > DateTime.UtcNow.Date)
             {
                 result.Add(new StringAmount
                 {
-                    Description = $"έως {fees.First().After.Value.AddHours(offset):dd-MM-yyyy HH:00}",
+                    Description = $"έως {fees.First().After?.AddHours(General.offset):dd-MM-yyyy HH:00}",
                     Amount = 0 // No charge before first cancellation fee
                 });
             }
@@ -168,8 +161,8 @@ namespace TravelBridge.API.Helpers.Extensions
                 {
                     result.Add(new StringAmount
                     {
-                        Description = $"έως {fee.After.Value.AddHours(offset):dd-MM-yyyy HH:00}",
-                        Amount = previous.Fee ?? 0
+                        Description = $"έως {fee.After.Value.AddHours(General.offset):dd-MM-yyyy HH:00}",
+                        Amount = decimal.Round((previous.Fee ?? 0) * rate.ProfitPerc, 2)
                     });
                 }
                 previous = fee;
@@ -177,16 +170,166 @@ namespace TravelBridge.API.Helpers.Extensions
 
             // Ensure the last entry covers up to check-out if necessary
             var last = fees.Last();
-            if (last.After?.Date != checkOut.Date && last.Fee > 0)
+            if (last.After?.Date != checkIn.Date && last.Fee > 0)
             {
                 result.Add(new StringAmount
                 {
-                    Description = $"έως {checkOut.AddHours(offset):dd-MM-yyyy}",
-                    Amount = last.Fee ?? 0
+                    Description = $"έως {checkIn.AddHours(General.offset):dd-MM-yyyy}",
+                    Amount = decimal.Round((last.Fee ?? 0) * rate.ProfitPerc, 2)
                 });
             }
+            if (fees.Min(a => a.After) < rate.Payments?.Min(a => a.DueDate))
+            {
+
+            }
+
+
+            CalculatePayments(rate, checkIn, General.offset);
 
             return result;
+        }
+
+        private static void CalculatePayments(HotelRate rate, DateTime checkIn, int offset)
+        {
+            if (rate.Payments.IsNullOrEmpty())
+            {
+                throw new InvalidOperationException("No cancellation fees available.");
+            }
+            List<PaymentWH> payments = rate.Payments?.Select(a => new PaymentWH { Amount = a.Amount, DueDate = a.DueDate }).ToList() ?? new List<PaymentWH>();
+            var first = payments.First();
+            if (first.Amount == 0)
+            {
+                throw new InvalidOperationException("Invalid cancelation fee value.");
+            }
+
+            if (payments.Count == 1)
+            {
+                if (first.DueDate?.Date <= DateTime.UtcNow.Date)
+                {
+                    rate.Payments = new List<PaymentWH>
+                    {
+                        new() {
+                            DueDate = first.DueDate?.AddHours(offset)??DateTime.UtcNow.AddHours(offset),
+                            Amount = rate.totalPrice
+                        }
+                    };
+                    return;
+                }
+                else
+                {
+                    rate.Payments = new List<PaymentWH>
+                    {
+                        new() {
+                            DueDate = DateTime.UtcNow.AddHours(offset),
+                            Amount = decimal.Round((rate.totalPrice*0.3m), 0)
+                        }
+                    };
+
+                    rate.Payments.Add(new PaymentWH
+                    {
+                        DueDate = first.DueDate?.Date,
+                        Amount = rate.totalPrice - rate.Payments.Sum(p => p.Amount)
+                    });
+                    return;
+                }
+            }
+
+            if (payments.Count > 1)
+            {
+                if (first.DueDate?.Date <= DateTime.UtcNow.Date)
+                {
+                    rate.Payments = new List<PaymentWH>
+                    {
+                        new() {
+                            DueDate = first.DueDate?.AddHours(offset)??DateTime.UtcNow.AddHours(offset),
+                            Amount = decimal.Round((first.Amount ?? 0) * rate.ProfitPerc, 2)
+                        }
+                    };
+
+                    for (int i = 1; i < payments.Count - 1; i++)
+                    {
+                        var pay = payments.ElementAt(i);
+                        rate.Payments.Add(new PaymentWH
+                        {
+                            DueDate = pay.DueDate?.AddHours(offset) ?? throw new InvalidOperationException("Invalid cancelation fee value"),
+                            Amount = decimal.Round((pay.Amount ?? 0) * rate.ProfitPerc, 2)
+                        });
+                    }
+                    var last = payments.Last() ?? throw new InvalidOperationException("Invalid cancelation fee value");
+                    rate.Payments.Add(new PaymentWH
+                    {
+                        DueDate = last.DueDate?.AddHours(offset) ?? throw new InvalidOperationException("Invalid cancelation fee value"),
+                        Amount = rate.totalPrice - rate.Payments.Sum(p => p.Amount)
+                    });
+
+                    return;
+                }
+                else
+                {
+                    if (first.Amount <= rate.totalPrice * 0.4m)
+                    {
+                        rate.Payments = new List<PaymentWH>
+                        {
+                            new() {
+                                DueDate = DateTime.UtcNow.AddHours(offset),
+                                Amount = decimal.Round((first.Amount ?? 0) * rate.ProfitPerc, 2)
+                            }
+                        };
+
+                        for (int i = 1; i < payments.Count - 1; i++)
+                        {
+                            var pay = payments.ElementAt(i);
+                            rate.Payments.Add(new PaymentWH
+                            {
+                                DueDate = pay.DueDate?.AddHours(offset) ?? throw new InvalidOperationException("Invalid cancelation fee value"),
+                                Amount = decimal.Round((pay.Amount ?? 0) * rate.ProfitPerc, 2)
+                            });
+                        }
+                        var last = payments.Last() ?? throw new InvalidOperationException("Invalid cancelation fee value");
+                        rate.Payments.Add(new PaymentWH
+                        {
+                            DueDate = last.DueDate?.AddHours(offset) ?? throw new InvalidOperationException("Invalid cancelation fee value"),
+                            Amount = rate.totalPrice - rate.Payments.Sum(p => p.Amount)
+                        });
+
+                        return;
+                    }
+                    else //the first payment is big so we will split it in two. first will be 30% of total
+                    {
+                        rate.Payments = new List<PaymentWH>
+                        {
+                            new() {
+                                DueDate = DateTime.UtcNow.AddHours(offset),
+                                Amount = decimal.Round((rate.totalPrice * 0.3m), 0)
+                            }
+                        };
+
+                        rate.Payments.Add(new PaymentWH
+                        {
+                            DueDate = DateTime.UtcNow.AddHours(offset),
+                            Amount = decimal.Round(first.Amount!.Value - rate.Payments.Sum(p => p.Amount.Value), 2)
+                        });
+
+                        for (int i = 1; i < payments.Count - 1; i++)
+                        {
+                            var pay = payments.ElementAt(i);
+                            rate.Payments.Add(new PaymentWH
+                            {
+                                DueDate = pay.DueDate?.AddHours(offset) ?? throw new InvalidOperationException("Invalid cancelation fee value"),
+                                Amount = decimal.Round((pay.Amount ?? 0) * rate.ProfitPerc, 2)
+                            });
+                        }
+                        var last = payments.Last() ?? throw new InvalidOperationException("Invalid cancelation fee value");
+                        rate.Payments.Add(new PaymentWH
+                        {
+                            DueDate = last.DueDate?.AddHours(offset) ?? throw new InvalidOperationException("Invalid cancelation fee value"),
+                            Amount = rate.totalPrice - rate.Payments.Sum(p => p.Amount)
+                        });
+
+                        return;
+                    }
+                }
+            }
         }
 
         public static HashSet<string> MapToType(this string type)
@@ -329,8 +472,8 @@ namespace TravelBridge.API.Helpers.Extensions
             {
                 b.BoardsText = "Επιλογές Διατροφής:";
                 b.HasBoards = true;
-                b.Boards.FirstOrDefault(b => b.Id == 14).Name += " -  δεν θα φαινεται";
-                //Boards.RemoveAll(b => b.Id == 14);
+                //b.Boards.FirstOrDefault(b => b.Id == 14).Name += " -  δεν θα φαινεται";
+                b.Boards.RemoveAll(b => b.Id == 14);
                 return;
             }
 
@@ -339,6 +482,38 @@ namespace TravelBridge.API.Helpers.Extensions
                 b.BoardsText = "Επιλογές Διατροφής:";
                 b.HasBoards = true;
                 return;
+            }
+        }
+
+        public static void SetBoardsText(this CheckoutRateProperties b, Language lang = Language.el)
+        {
+            if (b.Board == null || b.BoardId == null)
+            {
+                b.Board = "";
+                b.HasBoard = false;
+                return;
+            }
+
+            if (b.BoardId == 14)
+            {
+                b.Board = "Χωρίς διατροφή";
+                b.HasBoard = false;
+                return;
+            }
+
+            if (BoardTypes.ContainsKey(b.BoardId.Value))
+            {
+                BoardTypes[b.BoardId.Value].TryGetValue(lang, out string? value);
+                if (value != null)
+                {
+                    b.Board = value;
+                    b.HasBoard = true;
+                }
+                else
+                {
+                    b.Board = "Χωρίς διατροφή";
+                    b.HasBoard = false;
+                }
             }
         }
     }

@@ -1,9 +1,13 @@
+using System.IO;
 using System.Text.Json;
+using Microsoft.Extensions.Options;
 using TravelBridge.API.Contracts;
 using TravelBridge.API.Helpers.Extensions;
 using TravelBridge.API.Models;
+using TravelBridge.API.Models.DB;
 using TravelBridge.API.Models.Plugin.AutoComplete;
 using TravelBridge.API.Models.WebHotelier;
+using static TravelBridge.API.Helpers.General;
 
 namespace TravelBridge.API.Services.WebHotelier
 {
@@ -62,8 +66,18 @@ namespace TravelBridge.API.Services.WebHotelier
         {
             try
             {
-                // Build the query string from the availabilityRequest object
-                var url = $"availability?party={Uri.EscapeDataString(request.Party)}" +
+                var partyList = JsonSerializer.Deserialize<List<PartyItem>>(request.Party).GroupBy(g => g)
+                        .Select(g => new PartyItem
+                        {
+                            adults = g.Key.adults,
+                            children = g.Key.children,
+                            RoomsCount = g.Count()
+                        }).ToList();
+
+                Dictionary<PartyItem, Task<HttpResponseMessage>> tasks = new();
+                foreach (var partyItem in partyList ?? new())
+                {
+                    tasks.Add(partyItem, _httpClient.GetAsync($"availability?party={Uri.EscapeDataString(JsonSerializer.Serialize(partyItem.Key))}" +
                            $"&checkin={Uri.EscapeDataString(request.CheckIn)}" +
                            $"&checkout={Uri.EscapeDataString(request.CheckOut)}" +
                            $"&lat={Uri.EscapeDataString(request.Lat)}" +
@@ -73,35 +87,48 @@ namespace TravelBridge.API.Services.WebHotelier
                            $"&lon1={Uri.EscapeDataString(request.BottomLeftLongitude)}" +
                            $"&lon2={Uri.EscapeDataString(request.TopRightLongitude)}" +
                            $"&sort_by={Uri.EscapeDataString(request.SortBy)}" +
-                           $"&sort_order={Uri.EscapeDataString(request.SortOrder)}";
-
-                // Send GET request
-                var response = await _httpClient.GetAsync(url);
-
-                response.EnsureSuccessStatusCode();
-
-                // Deserialize the response JSON
-                var jsonString = await response.Content.ReadAsStringAsync();
-                var res = JsonSerializer.Deserialize<MultiAvailabilityResponse>(jsonString);
-
-                Provider Provider = Provider.WebHotelier;
-
-                foreach (WebHotel hotel in res?.Data.Hotels ?? [])
-                {
-                    hotel.Id = $"{(int)Provider}-{hotel.Code}";
-                    hotel.MinPrice = Math.Floor(hotel.GetMinPrice(out decimal salePrice));
-                    if (salePrice >= hotel.MinPrice + 5)
-                        hotel.SalePrice = salePrice;
-                    else
-                        hotel.SalePrice = 0;
+                           $"&sort_order={Uri.EscapeDataString(request.SortOrder)}&&payments=1"));
                 }
 
-                return new PluginSearchResponse
+                // Send GET request
+                await Task.WhenAll(tasks.Values);
+
+                Dictionary<PartyItem, MultiAvailabilityResponse> respones = new();
+
+                foreach (var task in tasks)
                 {
-                    Results = res?.Data?.Hotels?
-                    .Where(h => !string.IsNullOrWhiteSpace(h.PhotoL) && h.MinPrice > 0)
-                    ?? []
-                };
+                    var result = task.Value.Result;
+                    result.EnsureSuccessStatusCode();
+                    var jsonString = await result.Content.ReadAsStringAsync();
+                    var res = JsonSerializer.Deserialize<MultiAvailabilityResponse>(jsonString);
+                    if (res == null)
+                    {
+                        continue;
+                    }
+                    Provider Provider = Provider.WebHotelier;
+                    // Deserialize the response JSON
+                    foreach (WebHotel hotel in res.Data?.Hotels ?? [])
+                    {
+                        hotel.Id = $"{(int)Provider}-{hotel.Code}";
+                        hotel.SearchParty = task.Key;
+                        hotel.MinPrice = Math.Floor(hotel.GetMinPrice(out decimal salePrice));
+                        hotel.MinPricePerDay = Math.Floor((hotel.MinPrice ?? 0) / (int)(DateTime.Parse(request.CheckOut) - DateTime.Parse(request.CheckIn)).TotalDays);
+                        if (salePrice >= hotel.MinPrice + 5)
+                            hotel.SalePrice = salePrice;
+                        else
+                            hotel.SalePrice = 0;
+
+                        foreach (var rate in hotel.Rates)
+                        {
+                            rate.SearchParty = task.Key;
+                        }
+                    }
+
+                    respones.Add(task.Key, res);
+                }
+
+
+                return MergeResponses(respones); 
             }
             catch (HttpRequestException ex)
             {
@@ -109,7 +136,15 @@ namespace TravelBridge.API.Services.WebHotelier
             }
         }
 
-
+        private PluginSearchResponse MergeResponses(Dictionary<PartyItem, MultiAvailabilityResponse> respones)
+        {
+            return new PluginSearchResponse
+            {
+                Results = res?.Data?.Hotels?
+                   .Where(h => !string.IsNullOrWhiteSpace(h.PhotoL) && h.MinPrice > 0)
+                   ?? []
+            };
+        }
 
         private static IEnumerable<AutoCompleteHotel> MapResultsToHotels(Hotel[] hotels)
         {
@@ -175,8 +210,7 @@ namespace TravelBridge.API.Services.WebHotelier
             }
         }
 
-
-        internal async Task<SingleAvailabilityResponse> GetHotelAvailabilityAsync(SingleAvailabilityRequest req, DateTime checkout)
+        internal async Task<SingleAvailabilityResponse> GetHotelAvailabilityAsync(SingleAvailabilityRequest req, DateTime checkin, List<SelectedRate>? rates = null)
         {
             try
             {
@@ -194,7 +228,14 @@ namespace TravelBridge.API.Services.WebHotelier
                     // Deserialize the response JSON
                     var res = JsonSerializer.Deserialize<SingleAvailabilityData>(jsonString) ?? throw new InvalidOperationException("No Results");
 
-                    return res?.MapToResponse(checkout) ?? new SingleAvailabilityResponse { ErrorCode = "Empty", ErrorMessage = "No records found", Data = new SingleHotelAvailabilityInfo { Rooms = [] } };
+
+                    if (rates != null)
+                    {
+                        rates.ForEach(selectedRate => selectedRate.rateId = (selectedRate.roomId != null && selectedRate.rateId == null) ? selectedRate.roomId : selectedRate.rateId);
+                        res.Data.Rates = res.Data.Rates.Where(r => rates.Any(sr => sr.rateId.Equals(r.Id.ToString()) && sr.count > 0)).ToList();
+                    }
+
+                    return res?.MapToResponse(checkin) ?? new SingleAvailabilityResponse { ErrorCode = "Empty", ErrorMessage = "No records found", Data = new SingleHotelAvailabilityInfo { Rooms = [] } };
                 }
                 else
                 {
@@ -211,6 +252,26 @@ namespace TravelBridge.API.Services.WebHotelier
             {
                 return new SingleAvailabilityResponse { ErrorCode = "Error", ErrorMessage = "Internal Error", Data = new SingleHotelAvailabilityInfo { Rooms = [] } };
             }
+        }
+
+        internal async Task CreateBooking(Reservation reservation)
+        {
+            var parameters = new Dictionary<string, string>
+            {
+                { "checkin", reservation.CheckIn.ToString("yyyy-MM-dd") },
+                { "checkout", reservation.CheckOut.ToString("yyyy-MM-dd") },
+                { "rate", "DBL" },
+                { "rate_plan_code", "STANDARD" },
+                { "arrival", "2025-06-12" },
+                { "departure", "2025-06-15" },
+                { "adults", "2" },
+                { "children", "0" },
+                { "client[first_name]", "John" },
+                { "client[last_name]", "Doe" },
+                { "client[email]", "john.doe@example.com" },
+                { "client[phone]", "+123456789" },
+                { "payments[method]", "cash" }
+            };
         }
     }
 }

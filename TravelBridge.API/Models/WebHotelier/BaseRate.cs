@@ -36,10 +36,9 @@ namespace TravelBridge.API.Models.WebHotelier
         [JsonPropertyName("cancellation_expiry")]
         public DateTime? CancellationExpiry { get; set; }
 
-        [JsonPropertyName("labels")]
-        public IEnumerable<RateLabel> Labels { get; set; }
+        //[JsonPropertyName("labels")]
+        //public IEnumerable<RateLabel> Labels { get; set; }
     }
-
 
     public class RateLabel
     {

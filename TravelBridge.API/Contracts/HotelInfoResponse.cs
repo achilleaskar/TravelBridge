@@ -58,11 +58,11 @@ namespace TravelBridge.API.Contracts
         [JsonPropertyName("description")]
         public string Description { get; set; }
 
-        [JsonPropertyName("general_terms")]
-        public string GeneralTerms { get; set; }
+        //[JsonPropertyName("general_terms")]
+        //public string GeneralTerms { get; set; }
 
-        [JsonPropertyName("directions")]
-        public string Directions { get; set; }
+        //[JsonPropertyName("directions")]
+        //public string Directions { get; set; }
 
         [JsonPropertyName("location")]
         public LocationInfo Location { get; set; }
@@ -84,8 +84,8 @@ namespace TravelBridge.API.Contracts
 
         public IEnumerable<string> LargePhotos { get; set; }
 
-        [JsonPropertyName("logourl")]
-        public string LogoUrl { get; set; }
+        //[JsonPropertyName("logourl")]
+        //public string LogoUrl { get; set; }
 
         internal void SetBoardText()
         {
@@ -117,8 +117,8 @@ namespace TravelBridge.API.Contracts
             {
                 BoardsText = "Επιλογές Διατροφής:";
                 HasBoards = true;
-                Boards.FirstOrDefault(b => b.Id == 14).Name += " -  δεν θα φαινεται";
-                //Boards.RemoveAll(b => b.Id == 14);
+                //Boards.FirstOrDefault(b => b.Id == 14).Name += " -  δεν θα φαινεται";
+                Boards.RemoveAll(b => b.Id == 14);
                 return;
             }
 
@@ -190,17 +190,7 @@ namespace TravelBridge.API.Contracts
         [JsonPropertyName("checkin_time")]
         public string CheckinTime { get; set; }
     }
-
-    //public class RoomInfo
-    //{
-    //    [JsonPropertyName("code")]
-    //    public string Code { get; set; }
-
-    //    [JsonPropertyName("name")]
-    //    public string Name { get; set; }
-
-    //}
-
+ 
     public class PhotoInfo
     {
         [JsonPropertyName("medium")]

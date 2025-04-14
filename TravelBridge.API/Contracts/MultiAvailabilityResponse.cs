@@ -1,5 +1,4 @@
 using System.Text.Json.Serialization;
-using TravelBridge.API.Helpers.Converters;
 using TravelBridge.API.Models.WebHotelier;
 
 namespace TravelBridge.API.Contracts
@@ -31,6 +30,12 @@ namespace TravelBridge.API.Contracts
 
         [JsonPropertyName("minprice")]
         public decimal? MinPrice { get; set; }
+
+        [JsonIgnore]
+        public decimal? MinPricePerDay { get; set; }
+
+        [JsonIgnore]
+        public PartyItem? SearchParty { get; set; }
 
         [JsonPropertyName("salePrice")]
         public decimal SalePrice { get; set; }
@@ -92,6 +97,9 @@ namespace TravelBridge.API.Contracts
         [JsonPropertyName("margin")]
         public decimal? Margin { get; set; }
 
+        [JsonIgnore]
+        public PartyItem? SearchParty { get; set; }
+
         //[JsonPropertyName("id")]
         //public int Id { get; set; }
 
@@ -131,7 +139,7 @@ namespace TravelBridge.API.Contracts
         //[JsonPropertyName("cancellation_fees")]
         //public IEnumerable<CancellationFee> CancellationFees { get; set; }
     }
-   
+
     //public class Payment
     //{
     //    [JsonPropertyName("due")]

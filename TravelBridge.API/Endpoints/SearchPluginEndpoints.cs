@@ -50,18 +50,18 @@ namespace TravelBridge.API.Endpoints
 
             apiGroup.MapGet("/autocomplete",
             [EndpointSummary("Returns best matching locations that contain the provided search term")]
-            (string? searchQuery) => GetAutocompleteResults(searchQuery))
+            async (string? searchQuery) => await GetAutocompleteResults(searchQuery))
                 .WithName("GetLocations")
                 .WithOpenApi(CustomizeAutoCompleteOperation);
 
             apiGroup.MapGet("/allproperties",
            [EndpointSummary("Returns best matching locations that contain the provided search term")]
-            (string? type) => GetAllProperties(type));
+            async (string? type) => await GetAllProperties(type));
 
             apiGroup.MapGet("/submitSearch",
             [EndpointSummary("Returns best matching locations that contain the provided search term")]
-            ([AsParameters] SubmitSearchParameters pars) =>
-            GetSearchResults(pars))
+            async ([AsParameters] SubmitSearchParameters pars) =>
+            await GetSearchResults(pars))
                 .WithName("SubmitSearch")
                 .WithOpenApi(CustomizeSearchOperation);
         }
@@ -188,6 +188,7 @@ namespace TravelBridge.API.Endpoints
                 Lon = location[2],
                 Party = party
             };
+            //TODO check sorting after merge
 
             HandleSorting(pars.sorting, req);
 
@@ -263,17 +264,17 @@ namespace TravelBridge.API.Endpoints
             var allHotesls = res.Results.AsEnumerable();
 
             if (pars.minPrice.HasValue)
-                allHotesls = allHotesls.Where(h => h.MinPrice >= pars.minPrice.Value);
+                allHotesls = allHotesls.Where(h => h.MinPricePerDay >= pars.minPrice.Value);
 
             if (pars.maxPrice.HasValue)
-                allHotesls = allHotesls.Where(h => h.MinPrice <= pars.maxPrice.Value);
+                allHotesls = allHotesls.Where(h => h.MinPricePerDay <= pars.maxPrice.Value);
 
             if (!string.IsNullOrWhiteSpace(pars.hotelTypes))
             {
                 var selectedTypes = pars.hotelTypes.ToLower()
                     .Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
 
-                allHotesls = allHotesls.Where(h => h.MappedTypes.Any(t => selectedTypes.Contains(t)));
+                allHotesls = allHotesls.Where(h => h.MappedTypes.Any(t => selectedTypes.Contains(t.ToLower())));
             }
 
             if (!string.IsNullOrWhiteSpace(pars.boardTypes))
@@ -645,7 +646,7 @@ namespace TravelBridge.API.Endpoints
                 { "searchTerm", ("Search term (e.g., location name)", "Crete", true) },
                 { "page", ("The page", "0", false) },
                 { "sorting", ("Sorting Types", "", false) },
-                { "party", ("Additional information about the party (required if more than 1 room. always wins).", "[{\"adults\":2,\"childrens\":[2,6]},{\"adults\":3}]", false) },
+                { "party", ("Additional information about the party (required if more than 1 room. always wins).", "[{\"adults\":2,\"children\":[2,6]},{\"adults\":3}]", false) },
                 { "minPrice", ("min Price", "", false) },
                 { "maxPrice", ("max Price", "", false) },
                 { "hotelTypes", ("hotel Types", "", false) },
@@ -670,7 +671,7 @@ namespace TravelBridge.API.Endpoints
                     { "children", ("The ages of children, comma-separated (e.g., '5,10'). (only if 1 room)", "5,10", false) },
                     { "rooms", ("The number of rooms required. (only if one room)", 1, false) },
                     { "searchTerm", ("passthrough","Crete", true) },
-                    { "party", ("Additional information about the party (required if more than 1 room. always wins).", "[{\"adults\":2,\"childrens\":[2,6]},{\"adults\":3}]", false) }
+                    { "party", ("Additional information about the party (required if more than 1 room. always wins).", "[{\"adults\":2,\"children\":[2,6]},{\"adults\":3}]", false) }
                 };
 
                 foreach (var paramName in parameterDetails.Keys)

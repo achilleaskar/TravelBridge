@@ -1,5 +1,3 @@
-using System.Text.Json.Serialization;
-
 namespace TravelBridge.API.Contracts
 {
     public class BoardTextBase
