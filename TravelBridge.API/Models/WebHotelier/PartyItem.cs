@@ -5,14 +5,16 @@ namespace TravelBridge.API.Models.WebHotelier
 {
     public class PartyItem
     {
-        [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+        [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingDefault)]
         public int adults { get; set; }
 
-        [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+        [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingDefault)]
         public int[] children { get; set; }
 
         [JsonIgnore]
         public int RoomsCount { get; set; }
+
+        public string party { get; set; }
 
         public bool Equals(PartyItem other)
         {

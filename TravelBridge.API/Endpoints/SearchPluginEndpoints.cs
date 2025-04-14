@@ -215,7 +215,11 @@ namespace TravelBridge.API.Endpoints
                 res.Results = res.Results.OrderByDescending(h => h.MinPrice).ToList();
 
             res.ResultsCount = res?.Results?.Count() ?? 0;
-
+            if (res?.ResultsCount > 0)
+                foreach (var hotel in res?.Results)
+                {
+                    hotel.Rates = new List<MultiRate>();
+                }
             return res;
         }
 
