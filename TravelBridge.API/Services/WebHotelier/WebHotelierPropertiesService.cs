@@ -71,13 +71,19 @@ namespace TravelBridge.API.Services.WebHotelier
                         {
                             adults = g.Key.adults,
                             children = g.Key.children,
-                            RoomsCount = g.Count()
+                            RoomsCount = g.Count(),
+                            party = JsonSerializer.Serialize(g)
                         }).ToList();
+
+                if (partyList.IsNullOrEmpty())
+                {
+                    throw new InvalidOperationException($"Error calling WebHotelier API. Invalid parties");
+                }
 
                 Dictionary<PartyItem, Task<HttpResponseMessage>> tasks = new();
                 foreach (var partyItem in partyList ?? new())
                 {
-                    tasks.Add(partyItem, _httpClient.GetAsync($"availability?party={Uri.EscapeDataString(JsonSerializer.Serialize(partyItem.Key))}" +
+                    tasks.Add(partyItem, _httpClient.GetAsync($"availability?party={partyItem.party}" +
                            $"&checkin={Uri.EscapeDataString(request.CheckIn)}" +
                            $"&checkout={Uri.EscapeDataString(request.CheckOut)}" +
                            $"&lat={Uri.EscapeDataString(request.Lat)}" +
@@ -103,7 +109,7 @@ namespace TravelBridge.API.Services.WebHotelier
                     var res = JsonSerializer.Deserialize<MultiAvailabilityResponse>(jsonString);
                     if (res == null)
                     {
-                        continue;
+                        return new PluginSearchResponse();
                     }
                     Provider Provider = Provider.WebHotelier;
                     // Deserialize the response JSON
@@ -116,7 +122,7 @@ namespace TravelBridge.API.Services.WebHotelier
                         if (salePrice >= hotel.MinPrice + 5)
                             hotel.SalePrice = salePrice;
                         else
-                            hotel.SalePrice = 0;
+                            hotel.SalePrice = hotel.MinPrice;
 
                         foreach (var rate in hotel.Rates)
                         {
@@ -128,7 +134,13 @@ namespace TravelBridge.API.Services.WebHotelier
                 }
 
 
-                return MergeResponses(respones); 
+                var MergedRooms = MergeResponses(respones);
+                if (MergedRooms == null || MergedRooms.Results.IsNullOrEmpty())
+                {
+                    return new PluginSearchResponse();
+                }
+                MergedRooms.Results = MergedRooms.CoverRequest(partyList!);
+                return MergedRooms;
             }
             catch (HttpRequestException ex)
             {
@@ -138,12 +150,74 @@ namespace TravelBridge.API.Services.WebHotelier
 
         private PluginSearchResponse MergeResponses(Dictionary<PartyItem, MultiAvailabilityResponse> respones)
         {
-            return new PluginSearchResponse
+            try
             {
-                Results = res?.Data?.Hotels?
-                   .Where(h => !string.IsNullOrWhiteSpace(h.PhotoL) && h.MinPrice > 0)
-                   ?? []
-            };
+                if (respones.Count == 0)
+                {
+                    throw new InvalidOperationException($"No results");
+                }
+
+
+                if (respones.Count == 1)
+                {
+                    return new PluginSearchResponse
+                    {
+                        Results = respones.First().Value?.Data?.Hotels?
+                        .Where(h => !string.IsNullOrWhiteSpace(h.PhotoL) && h.MinPrice > 0)
+                        ?? []
+                    };
+                }
+
+                if (respones.Any(r => r.Value?.Data?.Hotels?.IsNullOrEmpty() != false))
+                {
+                    throw new InvalidOperationException($"No results");
+                }
+
+                //step 1: keep only same hotels
+
+                ////get 1st request ids
+                //var commonHotelIds = new HashSet<string>(respones.First().Value.Data.Hotels.Select(h => h.Id));
+                //// Intersect with the rest
+                //foreach (var hotelList in respones.Skip(1).Select(a => a.Value.Data.Hotels))
+                //{
+                //    var currentIds = new HashSet<string>(hotelList.Select(h => h.Id));
+                //    commonHotelIds.IntersectWith(currentIds);
+                //}
+
+                //step 2: filter hotels
+                var GroupedHotels = respones.SelectMany(h => h.Value.Data.Hotels)
+                     .GroupBy(h => h.Id).Where(h => h.Count() == respones.Count()).ToList()
+                     ?? throw new InvalidOperationException($"No results");
+
+                List<WebHotel> FinalObjects = new();
+                //step 3: merge hotels
+                foreach (var hotels in GroupedHotels)
+                {
+                    var temp = hotels.OrderBy(h => h.SearchParty?.adults ?? 0).FirstOrDefault();
+                    if (temp == null)
+                    {
+                        continue;
+                    }
+                    temp.Rates = hotels.SelectMany(h => h.Rates).ToList();
+                    temp.MinPrice = hotels.Sum(h => h.MinPrice * h.SearchParty.RoomsCount);
+                    temp.MinPricePerDay = hotels.Sum(h => h.MinPricePerDay * h.SearchParty.RoomsCount);
+                    temp.SalePrice = hotels.Sum(h => h.SalePrice * h.SearchParty.RoomsCount);
+
+                    FinalObjects.Add(temp);
+                }
+
+                return new PluginSearchResponse
+                {
+                    Results = FinalObjects?
+                       .Where(h => !string.IsNullOrWhiteSpace(h.PhotoL) && h.MinPrice > 0)
+                       ?? []
+                };
+            }
+            catch (Exception ex)
+            {
+                //TODO: log error
+                return new PluginSearchResponse();
+            }
         }
 
         private static IEnumerable<AutoCompleteHotel> MapResultsToHotels(Hotel[] hotels)

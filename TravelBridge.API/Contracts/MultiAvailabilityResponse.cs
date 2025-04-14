@@ -35,10 +35,10 @@ namespace TravelBridge.API.Contracts
         public decimal? MinPricePerDay { get; set; }
 
         [JsonIgnore]
-        public PartyItem? SearchParty { get; set; }
+        public PartyItem SearchParty { get; set; }
 
         [JsonPropertyName("salePrice")]
-        public decimal SalePrice { get; set; }
+        public decimal? SalePrice { get; set; }
 
         [JsonPropertyName("photoM")]
         public string PhotoM { get; set; }
@@ -109,8 +109,8 @@ namespace TravelBridge.API.Contracts
         //[JsonPropertyName("roomurl")]
         //public string RoomUrl { get; set; }
 
-        //[JsonPropertyName("remaining")]
-        //public int? Remaining { get; set; }
+        [JsonPropertyName("remaining")]
+        public int? Remaining { get; set; }
 
         //[JsonPropertyName("rate_desc")]
         //public string RateDescription { get; set; }
