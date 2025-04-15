@@ -37,7 +37,7 @@ namespace TravelBridge.API.Helpers
             return party;
         }
 
-        public static List<SelectedRate>? RatesToDict(string selectedRates)
+        public static List<SelectedRate>? RatesToList(string selectedRates)
         {
             try
             {
@@ -101,6 +101,7 @@ namespace TravelBridge.API.Helpers
             public string roomId { get; set; }
             public int count { get; set; }
             public string roomType { get; set; }
+            public string searchParty { get; set; }
         }
 
     }

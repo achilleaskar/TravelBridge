@@ -1,3 +1,4 @@
+using System.Collections.Generic;
 using System.IO;
 using System.Text.Json;
 using Microsoft.Extensions.Options;
@@ -66,14 +67,7 @@ namespace TravelBridge.API.Services.WebHotelier
         {
             try
             {
-                var partyList = JsonSerializer.Deserialize<List<PartyItem>>(request.Party).GroupBy(g => g)
-                        .Select(g => new PartyItem
-                        {
-                            adults = g.Key.adults,
-                            children = g.Key.children,
-                            RoomsCount = g.Count(),
-                            party = JsonSerializer.Serialize(g)
-                        }).ToList();
+                List<PartyItem> partyList = GetPartyList(request);
 
                 if (partyList.IsNullOrEmpty())
                 {
@@ -133,7 +127,6 @@ namespace TravelBridge.API.Services.WebHotelier
                     respones.Add(task.Key, res);
                 }
 
-
                 var MergedRooms = MergeResponses(respones);
                 if (MergedRooms == null || MergedRooms.Results.IsNullOrEmpty())
                 {
@@ -148,6 +141,88 @@ namespace TravelBridge.API.Services.WebHotelier
             }
         }
 
+        internal async Task<SingleAvailabilityResponse> GetHotelAvailabilityAsync(SingleAvailabilityRequest req, DateTime checkin, List<SelectedRate>? rates = null)
+        {
+            try
+            {
+                List<PartyItem> partyList = rates == null ? GetPartyList(req) : GetPartyList(rates);
+
+                if (partyList.IsNullOrEmpty())
+                {
+                    throw new InvalidOperationException($"Error calling WebHotelier API. Invalid parties");
+                }
+
+                Dictionary<PartyItem, Task<HttpResponseMessage>> tasks = new();
+                foreach (var partyItem in partyList ?? new())
+                {
+                    // Build the query string from the availabilityRequest object
+                    tasks.Add(partyItem, _httpClient.GetAsync($"availability/{req.PropertyId}?party={partyItem.party}" +
+                           $"&checkin={Uri.EscapeDataString(req.CheckIn)}" +
+                           $"&checkout={Uri.EscapeDataString(req.CheckOut)}"));
+                }
+
+                // Send GET request
+                await Task.WhenAll(tasks.Values);
+
+                SingleAvailabilityData? finalRes = null;
+                foreach (var task in tasks.OrderBy(p => p.Key.adults))
+                {
+                    var result = task.Value.Result;
+                    result.EnsureSuccessStatusCode();
+                    var jsonString = await result.Content.ReadAsStringAsync();
+                    var res = JsonSerializer.Deserialize<SingleAvailabilityData>(jsonString) ?? throw new InvalidOperationException("No Results");
+                    if (res == null)
+                    {
+                        return new SingleAvailabilityResponse { ErrorMessage = "No response" };
+                    }
+                    finalRes?.Data?.Rates.AddRange(res.Data?.Rates ?? new List<HotelRate>());
+                    finalRes ??= res;
+
+                    Provider Provider = Provider.WebHotelier;
+                    // Deserialize the response JSON
+                    foreach (var rate in res.Data?.Rates ?? [])
+                    {
+                        rate.SearchParty = task.Key;
+                    }
+                }
+
+                if (rates != null)
+                {
+                    //make sure i return proper rates and counts. test scenario with the same rate two times
+
+                    rates.ForEach(selectedRate => selectedRate.rateId = (selectedRate.roomId != null && selectedRate.rateId == null) ? selectedRate.roomId : selectedRate.rateId);
+                    finalRes.Data.Rates = finalRes.Data.Rates
+                        .Where(r => rates.Any(sr => sr.rateId.Equals(r.Id.ToString()) && r.SearchParty.party.Equals(sr.searchParty) && sr.count > 0)).ToList();
+                }
+
+                if (!finalRes.CoversRequest(partyList))
+                {
+                    return new SingleAvailabilityResponse { ErrorCode = "Error", ErrorMessage = "Not enough rooms", Data = new SingleHotelAvailabilityInfo { Rooms = [] } };
+                }
+
+                return finalRes?.MapToResponse(checkin)
+                    ?? new SingleAvailabilityResponse { ErrorCode = "Empty", ErrorMessage = "No records found", Data = new SingleHotelAvailabilityInfo { Rooms = [] } };
+            }
+            catch (HttpRequestException ex)
+            {
+                return new SingleAvailabilityResponse { ErrorCode = "Error", ErrorMessage = "Internal Error", Data = new SingleHotelAvailabilityInfo { Rooms = [] } };
+            }
+        }
+
+        private List<PartyItem> GetPartyList(List<SelectedRate> rates)
+        {
+            var partyList = new List<PartyItem>();
+
+            foreach (var selectedRate in rates.GroupBy(g => g.searchParty))
+            {
+                var item = JsonSerializer.Deserialize<PartyItem>(selectedRate.Key.TrimStart('[').TrimEnd(']')) ?? throw new InvalidDataException("Invalid Party");
+                item.RoomsCount = selectedRate.Count();
+                item.party = selectedRate.Key;
+                partyList.Add(item);
+            }
+            return partyList;
+        }
+
         private PluginSearchResponse MergeResponses(Dictionary<PartyItem, MultiAvailabilityResponse> respones)
         {
             try
@@ -156,7 +231,6 @@ namespace TravelBridge.API.Services.WebHotelier
                 {
                     throw new InvalidOperationException($"No results");
                 }
-
 
                 if (respones.Count == 1)
                 {
@@ -284,48 +358,16 @@ namespace TravelBridge.API.Services.WebHotelier
             }
         }
 
-        internal async Task<SingleAvailabilityResponse> GetHotelAvailabilityAsync(SingleAvailabilityRequest req, DateTime checkin, List<SelectedRate>? rates = null)
+        private static List<PartyItem> GetPartyList(IParty request)
         {
-            try
-            {
-                // Build the query string from the availabilityRequest object
-                var url = $"availability/{req.PropertyId}?party={Uri.EscapeDataString(req.Party)}" +
-                           $"&checkin={Uri.EscapeDataString(req.CheckIn)}" +
-                           $"&checkout={Uri.EscapeDataString(req.CheckOut)}";
-
-                // Send GET request
-                var response = await _httpClient.GetAsync(url);
-                var jsonString = await response.Content.ReadAsStringAsync();
-
-                if (response.IsSuccessStatusCode) // Check if response is an error
-                {
-                    // Deserialize the response JSON
-                    var res = JsonSerializer.Deserialize<SingleAvailabilityData>(jsonString) ?? throw new InvalidOperationException("No Results");
-
-
-                    if (rates != null)
+            return JsonSerializer.Deserialize<List<PartyItem>>(request.Party).GroupBy(g => g)
+                    .Select(g => new PartyItem
                     {
-                        rates.ForEach(selectedRate => selectedRate.rateId = (selectedRate.roomId != null && selectedRate.rateId == null) ? selectedRate.roomId : selectedRate.rateId);
-                        res.Data.Rates = res.Data.Rates.Where(r => rates.Any(sr => sr.rateId.Equals(r.Id.ToString()) && sr.count > 0)).ToList();
-                    }
-
-                    return res?.MapToResponse(checkin) ?? new SingleAvailabilityResponse { ErrorCode = "Empty", ErrorMessage = "No records found", Data = new SingleHotelAvailabilityInfo { Rooms = [] } };
-                }
-                else
-                {
-                    var errorResponse = JsonSerializer.Deserialize<BaseWebHotelierResponse>(jsonString);
-
-                    if (errorResponse != null && errorResponse.ErrorCode == "INVALID_PARAM")
-                    {
-
-                    }
-                    return new SingleAvailabilityResponse { ErrorCode = errorResponse.ErrorCode, ErrorMessage = errorResponse.ErrorMessage, Data = new SingleHotelAvailabilityInfo { Rooms = [] } };
-                }
-            }
-            catch (HttpRequestException ex)
-            {
-                return new SingleAvailabilityResponse { ErrorCode = "Error", ErrorMessage = "Internal Error", Data = new SingleHotelAvailabilityInfo { Rooms = [] } };
-            }
+                        adults = g.Key.adults,
+                        children = g.Key.children,
+                        RoomsCount = g.Count(),
+                        party = JsonSerializer.Serialize(g)
+                    }).ToList();
         }
 
         internal async Task CreateBooking(Reservation reservation)

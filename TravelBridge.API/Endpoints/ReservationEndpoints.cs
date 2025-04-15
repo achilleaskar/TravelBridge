@@ -181,7 +181,7 @@ namespace TravelBridge.API.Endpoints
             }
             else
             {
-                rates = RatesToDict(pars.SelectedRates);
+                rates = RatesToList(pars.SelectedRates);
                 if (rates == null)
                 {
                     throw new InvalidCastException("Invalid selected rates");
@@ -332,7 +332,7 @@ namespace TravelBridge.API.Endpoints
             }
             else
             {
-                Selectedrates = RatesToDict(pars.selectedRates);
+                Selectedrates = RatesToList(pars.selectedRates);
                 if (Selectedrates == null)
                 {
                     throw new InvalidCastException("Invalid selected rates");
@@ -401,10 +401,13 @@ namespace TravelBridge.API.Endpoints
                 CheckIn = pars.checkin,
                 CheckOut = pars.checkOut,
                 Nights = nights,
-                Rooms = GetDistinctRoomsPerRate(availRes.Data?.Rooms),
+                Rooms = GetDistinctRoomsPerRate(availRes.Data?.Rooms),//TODO: ti kanei afto?
                 SelectedPeople = GetPartyInfo(party)
             };
 
+
+            //TODO: recheck this validation
+            //i might need to add something with sums. cause when i have the same room for dif party and remaing is 1 i need error
             foreach (var selectedRate in Selectedrates)
             {
                 bool found = false;
@@ -439,7 +442,7 @@ namespace TravelBridge.API.Endpoints
                     throw new InvalidOperationException("Rates don't exist any more");
                 }
             }
-            res.MergePayments(Selectedrates);
+            res.MergePayments(Selectedrates);//TODO: finish this
             res.TotalPrice = res.Rooms.Sum(r => (r.TotalPrice * r.SelectedQuantity));
 
             return res;
@@ -519,7 +522,7 @@ namespace TravelBridge.API.Endpoints
                 { "children", ("The ages of children, comma-separated (e.g., '5,10'). (only if 1 room)", "5,10", false) },
                 { "party", ("Additional information about the party (required if more than 1 room. always wins).", "[{\"adults\":2,\"children\":[2,6]},{\"adults\":3}]", false) },
                 { "hotelId", ("The id of the hotel", "1-VAROSVILL", true) },
-                { "selectedRates", ("The selected rates", "[{\"roomId\":\"328000\",\"count\":1,\"roomType\":\"NGSTDS\"},{\"roomId\":\"273065\",\"count\":1,\"roomType\":\"JSUI\"}]", true) },
+                { "selectedRates", ("The selected rates", "[{\"roomId\":\"328000\",\"count\":1,\"roomType\":\"NGSTDS\",\"searchParty\":\"[{\\\"adults\\\":2,\\\"children\\\":[2,6]}]\"},{\"roomId\":\"273065\",\"count\":1,\"roomType\":\"JSUI\",\"searchParty\":\"[{\\\"adults\\\":3}]\"}]\r\n", true) },
             };
 
             return details.TryGetValue(paramName, out (string Description, object Example, bool Required) value) ? value : ("No description available.", "N/A", false);

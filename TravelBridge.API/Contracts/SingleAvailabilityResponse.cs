@@ -48,6 +48,7 @@ namespace TravelBridge.API.Contracts
         public decimal SalePrice { get; set; }
         public RateProperties RateProperties { get; set; }
         public string RateDescription { get; set; }
+        public PartyItem SearchParty { get; internal set; }
     }
 
     public class RateProperties
