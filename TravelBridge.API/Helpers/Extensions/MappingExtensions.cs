@@ -63,8 +63,6 @@ namespace TravelBridge.API.Helpers.Extensions
                 return null;
             }
 
-
-
             //TODO: use request dateTime to avoid change of date issue
             return new SingleAvailabilityResponse
             {
@@ -87,6 +85,7 @@ namespace TravelBridge.API.Helpers.Extensions
                             TotalPrice = rate.GetTotalPrice(),
                             SalePrice = rate.GetSalePrice(),
                             Id = rate.Id,
+                            SearchParty = rate.SearchParty,
                             RateProperties = new RateProperties
                             {
                                 RateName = rate.RateName,
@@ -99,7 +98,7 @@ namespace TravelBridge.API.Helpers.Extensions
                                 PaymentsOr = rate.Payments?.Select(a => new PaymentWH { Amount = a.Amount, DueDate = a.DueDate }).ToList() ?? new List<PaymentWH>(),
                                 CancellationFees = rate.CancellationFees.ToList().MapToList(checkin, rate),
                                 Payments = rate.Payments ?? new List<PaymentWH>(),
-                                PartialPayment = Helpers.General.FillPartialPayment(rate.Payments),
+                                PartialPayment = General.FillPartialPayment(rate.Payments),
                                 HasCancellation = rate.CancellationExpiry != null,
                                 HasBoard = !General.NoboardIds.Contains(rate.BoardType ?? 0)
                             },

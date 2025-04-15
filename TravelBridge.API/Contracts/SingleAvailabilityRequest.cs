@@ -1,6 +1,6 @@
-﻿namespace TravelBridge.API.Contracts
+namespace TravelBridge.API.Contracts
 {
-    public class SingleAvailabilityRequest
+    public class SingleAvailabilityRequest:IParty
     {
         public string Party { get; set; } // [{"adults":2, "children":[2,6]},{"adults":3}]
 

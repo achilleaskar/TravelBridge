@@ -82,13 +82,15 @@ namespace TravelBridge.API.Contracts
         }
 
         public decimal ProfitPerc { get; set; }
+        public PartyItem SearchParty { get; set; }
+
         internal decimal GetTotalPrice()
         {
             var minMargin = Pricing.TotalPrice * 10 / 100;
             if (Pricing.Margin < minMargin || (Retail.TotalPrice - Pricing.TotalPrice) < minMargin || Retail == null || Retail.TotalPrice == 0)
             {
                 totalPrice = decimal.Floor(Pricing.TotalPrice + minMargin);
-                decimal.Round(ProfitPerc = totalPrice / Pricing.TotalPrice,6);
+                decimal.Round(ProfitPerc = totalPrice / Pricing.TotalPrice, 6);
                 return totalPrice;
             }
             else
@@ -143,6 +145,25 @@ namespace TravelBridge.API.Contracts
 
         [JsonPropertyName("data")]
         public HotelInfo Data { get; set; }
+
+        internal bool CoversRequest(List<PartyItem>? partyList)
+        {
+            if (partyList.Sum(a => a.RoomsCount) > Data.Rates.DistinctBy(h => h.Type).Sum(s => s.RemainingRooms))
+            {
+                return false;
+            }
+            else
+            {
+                foreach (var party in partyList)
+                {
+                    if (party.RoomsCount > (Data.Rates.Where(r => r.SearchParty?.Equals(party) == true).Sum(s => s.RemainingRooms) ?? 0))
+                    {
+                        return false;
+                    }
+                }
+            }
+            return true;
+        }
 
         #endregion Properties
     }
