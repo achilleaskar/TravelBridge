@@ -24,27 +24,30 @@ namespace TravelBridge.API.Repositories
                     CheckIn = DateOnly.FromDateTime(parsedCheckin.Date),
                     CheckOut = DateOnly.FromDateTime(parsedCheckOut.Date),
                     HotelCode = pars.HotelId,
-                    HotelName = res.HotelData.Name,
+                    HotelName = res.HotelData.Name, //TODO: check giati den mpainei
                     TotalAmount = res.TotalPrice,
                     TotalRooms = res.Rooms.Count,
                     Party = party,
                     Customer = new Customer(pars.CustomerInfo?.Name, pars.CustomerInfo?.LastName, pars.CustomerInfo?.Phone, "GR", pars.CustomerInfo?.Email),
                     Payments = new List<Payment>
-                {
-                    new() {
-                        Amount = res.TotalPrice,
-                        OrderCode = orderCode,
-                        PaymentProvider=Models.PaymentProvider.Viva,
-                        PaymentStatus=Models.PaymentStatus.Pending
-                    }
-                },
+                    {
+                        new() {
+                            Amount = pars.paymentAmount??throw new InvalidDataException("Invalid Payment Amount"),
+                            OrderCode = orderCode,
+                            PaymentProvider=PaymentProvider.Viva,
+                            PaymentStatus=PaymentStatus.Pending
+                        }
+                    },
+                    PartialPayment = new PartialPaymentDB(res.PartialPayment),
+                    RemainingAmount = res.TotalPrice=res.PartialPayment.prepayAmount,
                     Rates = res.Rooms.Select(r => new ReservationRate
                     {
                         HotelCode = pars.HotelId,
                         Price = r.TotalPrice,
-                        Provider = Models.Provider.WebHotelier,
+                        Provider = Provider.WebHotelier,
                         RateId = r.RateId,
-                        Quantity = r.SelectedQuantity
+                        Quantity = r.SelectedQuantity,
+                        SearchParty = new(r.RateProperties.SearchParty)
                     }).ToList()
                 };
 
@@ -61,7 +64,7 @@ namespace TravelBridge.API.Repositories
         {
             return await db.Reservations
                 .Where(r => r.Payments.Any(p => p.OrderCode == orderCode))
-                .Include(r => r.Rates)
+                .Include(r => r.Rates).ThenInclude(r => r.SearchParty)
                 .Include(r => r.Payments)
                 .FirstOrDefaultAsync();
         }
@@ -76,7 +79,8 @@ namespace TravelBridge.API.Repositories
                     CheckIn = r.CheckIn,
                     CheckOut = r.CheckOut,
                     HotelName = r.HotelName,
-                    TotalAmount = r.TotalAmount
+                    TotalAmount = r.TotalAmount,
+                    Rates = r.Rates
                 })
                 .FirstOrDefaultAsync();
         }

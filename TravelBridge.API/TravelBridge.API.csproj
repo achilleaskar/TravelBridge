@@ -10,6 +10,16 @@
 	</PropertyGroup>
 
 	<ItemGroup>
+	  <None Remove="Resources\BookingConfirmationEmailTemplate.html" />
+	</ItemGroup>
+
+	<ItemGroup>
+	  <EmbeddedResource Include="Resources\BookingConfirmationEmailTemplate.html">
+	    <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+	  </EmbeddedResource>
+	</ItemGroup>
+
+	<ItemGroup>
 	  <PackageReference Include="Microsoft.AspNetCore.OpenApi" Version="9.0.3" />
 	  <PackageReference Include="Microsoft.AspNetCore.ResponseCompression" Version="2.3.0" />
 	  <PackageReference Include="Microsoft.EntityFrameworkCore" Version="9.0.3" />

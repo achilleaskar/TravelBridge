@@ -48,7 +48,8 @@ namespace TravelBridge.API.Contracts
         public List<PaymentWH>? Payments { get; set; }
 
         [JsonPropertyName("id")]
-        public int Id { get; set; }
+        [JsonConverter(typeof(IntToStringJsonConverter))]
+        public string Id { get; set; }
 
         [JsonPropertyName("pricing")]
         public PricingInfo Pricing { get; set; }
@@ -137,6 +138,12 @@ namespace TravelBridge.API.Contracts
 
         [JsonPropertyName("amount")]
         public decimal? Amount { get; set; }
+
+        public override string ToString()
+        {
+            return $"DueDate: {DueDate?.ToString("yyyy-MM-dd")}, " +
+                   $"Amount: {Amount?.ToString("C", System.Globalization.CultureInfo.CurrentCulture)}";
+        }
     }
 
     public class SingleAvailabilityData : BaseWebHotelierResponse
@@ -156,7 +163,14 @@ namespace TravelBridge.API.Contracts
             {
                 foreach (var party in partyList)
                 {
-                    if (party.RoomsCount > (Data.Rates.Where(r => r.SearchParty?.Equals(party) == true).Sum(s => s.RemainingRooms) ?? 0))
+                    if (party.RoomsCount > (
+                        Data.Rates
+                        .Where(r => r.SearchParty?.Equals(party) == true)
+                        .GroupBy(r => r.Type)
+                        .Select(g => g.First())
+                        .Sum(s => s.RemainingRooms) ?? 0
+                        )
+                    )
                     {
                         return false;
                     }

@@ -84,7 +84,7 @@ namespace TravelBridge.API.Helpers.Extensions
                         {
                             TotalPrice = rate.GetTotalPrice(),
                             SalePrice = rate.GetSalePrice(),
-                            Id = rate.Id,
+                            Id = rate.Id.ToString(),
                             SearchParty = rate.SearchParty,
                             RateProperties = new RateProperties
                             {
@@ -98,7 +98,7 @@ namespace TravelBridge.API.Helpers.Extensions
                                 PaymentsOr = rate.Payments?.Select(a => new PaymentWH { Amount = a.Amount, DueDate = a.DueDate }).ToList() ?? new List<PaymentWH>(),
                                 CancellationFees = rate.CancellationFees.ToList().MapToList(checkin, rate),
                                 Payments = rate.Payments ?? new List<PaymentWH>(),
-                                PartialPayment = General.FillPartialPayment(rate.Payments),
+                                PartialPayment = General.FillPartialPayment(rate.Payments,checkin),
                                 HasCancellation = rate.CancellationExpiry != null,
                                 HasBoard = !General.NoboardIds.Contains(rate.BoardType ?? 0)
                             },

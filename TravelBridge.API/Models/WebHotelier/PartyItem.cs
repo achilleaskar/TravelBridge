@@ -1,10 +1,16 @@
 using System.Text.Json.Serialization;
 using System.Text.RegularExpressions;
+using TravelBridge.API.Helpers;
 
 namespace TravelBridge.API.Models.WebHotelier
 {
     public class PartyItem
     {
+        public PartyItem()
+        {
+
+        }
+
         [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingDefault)]
         public int adults { get; set; }
 

@@ -1,7 +1,10 @@
-using System.Collections.Generic;
 using System.IO;
+using System.Net;
+using System.Net.Http.Headers;
+using System.Net.Mail;
+using System.Reflection;
 using System.Text.Json;
-using Microsoft.Extensions.Options;
+using Microsoft.AspNetCore.Mvc.ApplicationModels;
 using TravelBridge.API.Contracts;
 using TravelBridge.API.Helpers.Extensions;
 using TravelBridge.API.Models;
@@ -145,6 +148,8 @@ namespace TravelBridge.API.Services.WebHotelier
         {
             try
             {
+                rates?.ForEach(r => r.FillPartyFromId());
+
                 List<PartyItem> partyList = rates == null ? GetPartyList(req) : GetPartyList(rates);
 
                 if (partyList.IsNullOrEmpty())
@@ -183,6 +188,7 @@ namespace TravelBridge.API.Services.WebHotelier
                     foreach (var rate in res.Data?.Rates ?? [])
                     {
                         rate.SearchParty = task.Key;
+                        rate.Id += $"-{task.Key.adults}{((task.Key.children?.Length??0) > 0 ? string.Concat(task.Key.children) : "")}";
                     }
                 }
 
@@ -192,7 +198,7 @@ namespace TravelBridge.API.Services.WebHotelier
 
                     rates.ForEach(selectedRate => selectedRate.rateId = (selectedRate.roomId != null && selectedRate.rateId == null) ? selectedRate.roomId : selectedRate.rateId);
                     finalRes.Data.Rates = finalRes.Data.Rates
-                        .Where(r => rates.Any(sr => sr.rateId.Equals(r.Id.ToString()) && r.SearchParty.party.Equals(sr.searchParty) && sr.count > 0)).ToList();
+                        .Where(r => rates.Any(sr => sr.rateId.Equals(r.Id.ToString()) && sr.count > 0)).ToList();
                 }
 
                 if (!finalRes.CoversRequest(partyList))
@@ -247,20 +253,9 @@ namespace TravelBridge.API.Services.WebHotelier
                     throw new InvalidOperationException($"No results");
                 }
 
-                //step 1: keep only same hotels
-
-                ////get 1st request ids
-                //var commonHotelIds = new HashSet<string>(respones.First().Value.Data.Hotels.Select(h => h.Id));
-                //// Intersect with the rest
-                //foreach (var hotelList in respones.Skip(1).Select(a => a.Value.Data.Hotels))
-                //{
-                //    var currentIds = new HashSet<string>(hotelList.Select(h => h.Id));
-                //    commonHotelIds.IntersectWith(currentIds);
-                //}
-
-                //step 2: filter hotels
+                //keep only hotels that exist in all results
                 var GroupedHotels = respones.SelectMany(h => h.Value.Data.Hotels)
-                     .GroupBy(h => h.Id).Where(h => h.Count() == respones.Count()).ToList()
+                     .GroupBy(h => h.Id).Where(h => h.Count() == respones.Count).ToList()
                      ?? throw new InvalidOperationException($"No results");
 
                 List<WebHotel> FinalObjects = new();
@@ -366,7 +361,7 @@ namespace TravelBridge.API.Services.WebHotelier
                         adults = g.Key.adults,
                         children = g.Key.children,
                         RoomsCount = g.Count(),
-                        party = JsonSerializer.Serialize(g)
+                        party = JsonSerializer.Serialize(new List<PartyItem> { g.Key })
                     }).ToList();
         }
 
@@ -374,20 +369,97 @@ namespace TravelBridge.API.Services.WebHotelier
         {
             var parameters = new Dictionary<string, string>
             {
-                { "checkin", reservation.CheckIn.ToString("yyyy-MM-dd") },
-                { "checkout", reservation.CheckOut.ToString("yyyy-MM-dd") },
-                { "rate", "DBL" },
-                { "rate_plan_code", "STANDARD" },
-                { "arrival", "2025-06-12" },
-                { "departure", "2025-06-15" },
+                { "checkin",  "2025-06-15"},//reservation.CheckIn.ToString("yyyy-MM-dd")
+                { "checkout", "2025-06-20"},//reservation.CheckOut.ToString("yyyy-MM-dd") 
+                { "rate", "73791" },
+                { "price", "336.12" },
+                { "rooms", "1" },
                 { "adults", "2" },
-                { "children", "0" },
-                { "client[first_name]", "John" },
-                { "client[last_name]", "Doe" },
-                { "client[email]", "john.doe@example.com" },
-                { "client[phone]", "+123456789" },
-                { "payments[method]", "cash" }
+                { "party", reservation.Rates.First().SearchParty?.Party??"" },
+                { "firstName", "John" },
+                { "lastName", "Doe" },
+                { "email", "achilleaskaragiannis@outlook.com" },
+                { "payment_method", "CC" },
+                { "cardNumber", "5351420009940754" },
+                { "cardType", "Visa" },
+                { "cardName", "John Smith" },
+                { "cardMonth", "12" },
+                { "cardYear", "2027" },
+                { "cardCVV", "123" }
             };
+
+            try
+            {
+                // Build the query string from the availabilityRequest object
+                var url = $"/book/TRAVEL";
+
+                // Serialize parameters to URL-encoded form data
+                var content = new FormUrlEncodedContent(parameters);
+
+                // Set the Accept header to receive JSON response
+                _httpClient.DefaultRequestHeaders.Accept.Clear();
+                _httpClient.DefaultRequestHeaders.Accept.Add(new MediaTypeWithQualityHeaderValue("application/json"));
+
+                // Send POST request with parameters in the body
+                var response = await _httpClient.PostAsync(url, content);
+                var jsonString = await response.Content.ReadAsStringAsync();
+
+                // Throw if not successful
+                response.EnsureSuccessStatusCode();
+
+                // Read response as JSON string
+                if (response.IsSuccessStatusCode)
+                {
+                    await SendConfirmationEmail();
+                }
+            }
+            catch (HttpRequestException ex)
+            {
+                throw new InvalidOperationException($"Error calling WebHotelier API: {ex.Message}", ex);
+            }
+        }
+
+        public async Task SendConfirmationEmail()
+        {
+            var assembly = Assembly.GetExecutingAssembly();
+            string resourceName = "TravelBridge.API.Resources.BookingConfirmationEmailTemplate.html";
+            string htmlContent;
+
+            using (Stream stream = assembly.GetManifestResourceStream(resourceName))
+            {
+                if (stream == null)
+                    throw new InvalidOperationException($"Resource {resourceName} not found.");
+
+                using (StreamReader reader = new StreamReader(stream))
+                {
+                    htmlContent = reader.ReadToEnd();
+                }
+            }
+
+            htmlContent = htmlContent
+                .Replace("{UserName}", "John Doe")
+                .Replace("{Date}", DateTime.Now.ToShortDateString());
+
+            // SMTP setup with correct port (587)
+            var smtpClient = new SmtpClient("mail.iostheproject.gr")
+            {
+                Port = 587, // or your SMTP port
+                Credentials = new NetworkCredential("info@iostheproject.gr", "hphVI3VrrKz"),
+                EnableSsl = true,
+            };
+
+            // Email message setup
+            var mailMessage = new MailMessage
+            {
+                From = new MailAddress("info@iostheproject.gr"),
+                Subject = "Test Email",
+                Body = htmlContent, // sending actual HTML content
+                IsBodyHtml = true,
+            };
+
+            mailMessage.To.Add("achilleaskaragiannis@outlook.com");
+
+            await smtpClient.SendMailAsync(mailMessage);
         }
     }
 }

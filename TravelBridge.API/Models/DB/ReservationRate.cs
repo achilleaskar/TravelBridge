@@ -8,7 +8,8 @@ namespace TravelBridge.API.Models.DB
         [MaxLength(50)]
         public string? HotelCode { get; set; }
 
-        public int RateId { get; set; }
+        [MaxLength(20)]
+        public string RateId { get; set; }
 
         [Column(TypeName = "DECIMAL(10,2)")]
         public decimal Price { get; set; }
@@ -22,6 +23,7 @@ namespace TravelBridge.API.Models.DB
 
         public Reservation? Reservation { get; set; }
         public int? ReservationId { get; set; }
+        public PartyItemDB? SearchParty { get;  set; }
 
         #endregion Relations
     }

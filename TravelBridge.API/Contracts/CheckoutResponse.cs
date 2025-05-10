@@ -1,7 +1,7 @@
+using System.Globalization;
 using System.Text.Json.Serialization;
 using TravelBridge.API.Helpers;
 using TravelBridge.API.Models.WebHotelier;
-using static System.Runtime.InteropServices.JavaScript.JSType;
 
 namespace TravelBridge.API.Contracts
 {
@@ -33,12 +33,22 @@ namespace TravelBridge.API.Contracts
         public List<PaymentWH> Payments { get; set; }
         public PartialPayment PartialPayment { get; private set; }
 
+
+
         internal void MergePayments(List<General.SelectedRate> selectedrates)
         {
-            if (Rooms.Sum(r => r.SelectedQuantity) == 1)
+            if (!DateTime.TryParseExact(CheckIn, "dd/MM/yyyy", CultureInfo.InvariantCulture, DateTimeStyles.None, out DateTime checkinDate))
             {
-                Payments = Rooms.First().RateProperties.Payments;
-                PartialPayment = General.FillPartialPayment(Payments);
+                // Handle parse failure here
+            }
+
+            TotalPrice = Rooms.Sum(r => r.TotalPrice);
+            Payments = Rooms.SelectMany(r => r.RateProperties.Payments).ToList();
+            PartialPayment = General.FillPartialPayment(Payments, checkinDate) ?? throw new InvalidOperationException("Payments calculation failure.");
+            Payments = [];
+            if ((PartialPayment.prepayAmount + PartialPayment.nextPayments.Sum(a => a.Amount)) != TotalPrice)
+            {
+                throw new InvalidOperationException("Payments calculation failure.");
             }
         }
     }
@@ -70,7 +80,7 @@ namespace TravelBridge.API.Contracts
         public string RoomName { get; set; }
 
         [JsonPropertyName("rateId")]
-        public int RateId { get; set; }
+        public string RateId { get; set; }
 
         [JsonPropertyName("selectedQuantity")]
         public int SelectedQuantity { get; set; }
@@ -103,5 +113,6 @@ namespace TravelBridge.API.Contracts
         public bool HasBoard { get; set; }
         public List<StringAmount> CancellationFees { get; set; }
         public List<PaymentWH> Payments { get; set; }
+        public PartyItem SearchParty { get; set; }
     }
 }
