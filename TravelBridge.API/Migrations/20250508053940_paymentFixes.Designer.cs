@@ -3,6 +3,7 @@ using System;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
 using Microsoft.EntityFrameworkCore.Metadata;
+using Microsoft.EntityFrameworkCore.Migrations;
 using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 using TravelBridge.API.DataBase;
 
@@ -11,9 +12,11 @@ using TravelBridge.API.DataBase;
 namespace TravelBridge.API.Migrations
 {
     [DbContext(typeof(AppDbContext))]
-    partial class AppDbContextModelSnapshot : ModelSnapshot
+    [Migration("20250508053940_paymentFixes")]
+    partial class paymentFixes
     {
-        protected override void BuildModel(ModelBuilder modelBuilder)
+        /// <inheritdoc />
+        protected override void BuildTargetModel(ModelBuilder modelBuilder)
         {
 #pragma warning disable 612, 618
             modelBuilder
@@ -225,9 +228,6 @@ namespace TravelBridge.API.Migrations
                     b.Property<string>("Party")
                         .HasMaxLength(150)
                         .HasColumnType("varchar(150)");
-
-                    b.Property<decimal>("RemainingAmount")
-                        .HasColumnType("DECIMAL(10,2)");
 
                     b.Property<decimal>("TotalAmount")
                         .HasColumnType("DECIMAL(10,2)");

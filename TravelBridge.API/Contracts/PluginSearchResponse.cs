@@ -23,7 +23,14 @@ namespace TravelBridge.API.Contracts
                 {
                     foreach (var party in partyList)
                     {
-                        if (party.RoomsCount > (hotel.Rates.Where(r => r.SearchParty?.Equals(party) == true).Sum(s => s.Remaining) ?? 0))
+                        if (party.RoomsCount > (
+                            hotel.Rates
+                                .Where(r => r.SearchParty?.Equals(party) == true)
+                                .GroupBy(r => r.Type) // or r.RateType if it's a property
+                                .Select(g => g.First()) // take one rate per type
+                                .Sum(s => s.Remaining)
+                            )
+                        )
                         {
                             invalid.Add(hotel);
                             break;

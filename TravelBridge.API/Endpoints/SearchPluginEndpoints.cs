@@ -194,11 +194,12 @@ namespace TravelBridge.API.Endpoints
 
             int skip = (pars.page ?? 0) * 20;
 
-            var res = await webHotelierPropertiesService.GetAvailabilityAsync(req) ?? new PluginSearchResponse
-            {
-                Results = new List<WebHotel>(),
-                Filters = new(),
-            };
+            var res = await webHotelierPropertiesService.GetAvailabilityAsync(req) 
+                ?? new PluginSearchResponse
+                    {
+                        Results = new List<WebHotel>(),
+                        Filters = new(),
+                    };
 
             res.SearchTerm = pars.searchTerm;
             int nights = (parsedCheckOut - parsedCheckin).Days;

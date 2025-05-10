@@ -28,7 +28,7 @@ namespace TravelBridge.API.Endpoints
                .WithOpenApi(CustomizeGetHotelInfoOperation);
 
             apiGroup.MapGet("/roomInfo",
-                      [EndpointSummary("Returns info of the selected hotel")]
+                      [EndpointSummary("Returns info of the selected room")]
             async (string HotelId, string RoomId) =>
             await GetRoomInfo(HotelId, RoomId))
                           .WithName("RoomInfo")

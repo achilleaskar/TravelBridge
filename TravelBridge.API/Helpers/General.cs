@@ -1,6 +1,8 @@
 using System.Runtime.InteropServices;
 using System.Text.Json;
 using TravelBridge.API.Contracts;
+using TravelBridge.API.Models.DB;
+using TravelBridge.API.Models.WebHotelier;
 
 namespace TravelBridge.API.Helpers
 {
@@ -81,9 +83,11 @@ namespace TravelBridge.API.Helpers
         {
             return source == null || !source.Any();
         }
-        public static PartialPayment? FillPartialPayment(List<PaymentWH>? payments)
+        public static PartialPayment? FillPartialPayment(List<PaymentWH>? payments, DateTime checkIn)
         {
-            if (payments.IsNullOrEmpty() || payments[0].DueDate?.Date != DateTime.UtcNow.AddHours(offset).Date || !payments.Any(p => p.DueDate?.Date > DateTime.UtcNow.AddHours(offset).Date))
+            if (payments.IsNullOrEmpty()
+                || payments[0].DueDate?.Date != DateTime.UtcNow.AddHours(offset).Date
+                || !payments.Any(p => p.DueDate?.Date > DateTime.UtcNow.AddHours(offset).Date))
             {
                 return null;
             }
@@ -91,10 +95,107 @@ namespace TravelBridge.API.Helpers
             return new PartialPayment
             {
                 prepayAmount = payments.Where(p => p.DueDate?.Date <= DateTime.UtcNow.AddHours(offset).Date).Sum(a => a.Amount) ?? throw new InvalidOperationException("Payments calculation failure."),
-                nextPayments = payments.Where(p => p.DueDate?.Date > DateTime.UtcNow.AddHours(offset).Date).Select(a => new PaymentWH { Amount = a.Amount, DueDate = a.DueDate }).ToList()
-                //TODO: check total amount
+                nextPayments = MergeNextPayments(payments.Where(p => p.DueDate?.Date > DateTime.UtcNow.AddHours(offset).Date).Select(a => new PaymentWH { Amount = a.Amount, DueDate = a.DueDate }).ToList(), checkIn)
             };
         }
+
+        private static List<PaymentWH> MergeNextPayments(List<PaymentWH> payments, DateTime checkIn)
+        {
+            if (payments.Any(p => p.DueDate == null || p.Amount <= 0))
+            {
+                throw new InvalidOperationException("Error on calculating payments");
+            }
+
+            // Step 1: Merge same-day payments
+            var grouped = payments
+                .GroupBy(p => p.DueDate!.Value.Date)
+                .Select(g => new PaymentWH
+                {
+                    DueDate = g.Key,
+                    Amount = g.Sum(p => p.Amount)
+                })
+                .OrderBy(p => p.DueDate)
+                .ToList();
+
+            // Step 2: Merge based on day difference from 1 to 10
+            for (int maxDays = 1; maxDays <= 10 && grouped.Count > 2; maxDays++)
+            {
+                var merged = new List<PaymentWH>();
+                int i = 0;
+
+                while (i < grouped.Count)
+                {
+                    var current = grouped[i];
+                    int j = i + 1;
+
+                    // Try to merge with next if within maxDays
+                    while (j < grouped.Count && (grouped[j].DueDate!.Value - current.DueDate!.Value).TotalDays <= maxDays)
+                    {
+                        current.Amount += grouped[j].Amount;
+                        j++;
+                    }
+
+                    merged.Add(new PaymentWH { DueDate = current.DueDate, Amount = current.Amount });
+                    i = j;
+                }
+
+                grouped = merged.OrderBy(p => p.DueDate).ToList();
+            }
+
+            // Step 3: If still more than 2 left, merge based on halves
+            if (grouped.Count >= 2)
+            {
+                // Extra merge if check-in is far from today
+                if ((checkIn - DateTime.Today).TotalDays > 12)
+                {
+                    // Try to merge final payments that are <= 3 days apart
+                    var temp = new List<PaymentWH>();
+                    int i = 0;
+
+                    while (i < grouped.Count)
+                    {
+                        var current = grouped[i];
+                        int j = i + 1;
+
+                        while (j < grouped.Count && (grouped[j].DueDate!.Value - current.DueDate!.Value).TotalDays <= 3)
+                        {
+                            current.Amount += grouped[j].Amount;
+                            j++;
+                        }
+
+                        temp.Add(new PaymentWH { DueDate = current.DueDate, Amount = current.Amount });
+                        i = j;
+                    }
+
+                    grouped = temp.OrderBy(p => p.DueDate).ToList();
+                }
+
+                // If still more than 2 after the extra logic, do the fallback merge
+                if (grouped.Count > 2)
+                {
+                    var firstHalf = grouped.Take(grouped.Count / 2).ToList();
+                    var secondHalf = grouped.Skip(grouped.Count / 2).ToList();
+
+                    grouped = new List<PaymentWH>
+                    {
+                        new PaymentWH
+                        {
+                            DueDate = firstHalf.First().DueDate,
+                            Amount = firstHalf.Sum(p => p.Amount)
+                        },
+                        new PaymentWH
+                        {
+                            DueDate = secondHalf.First().DueDate,
+                            Amount = secondHalf.Sum(p => p.Amount)
+                        }
+                    };
+                }
+            }
+
+
+            return grouped;
+        }
+
         public class SelectedRate
         {
             public string rateId { get; set; }
@@ -102,6 +203,31 @@ namespace TravelBridge.API.Helpers
             public int count { get; set; }
             public string roomType { get; set; }
             public string searchParty { get; set; }
+
+            internal void FillPartyFromId()
+            {
+                var parts = rateId.Split('-');
+                //rateId = parts[0]; // Keep the first part as the rate ID
+                if (parts.Length < 2)
+                    throw new ArgumentException("ID does not contain party info suffix.");
+
+                var partySegment = parts.Last();
+
+                if (string.IsNullOrEmpty(partySegment) || !partySegment.All(char.IsDigit))
+                    throw new ArgumentException("Party segment must contain only digits.");
+
+                // First digit is adults
+                int adults = partySegment[0] - '0';
+
+                // Remaining digits are children
+                var children = partySegment.Length > 1
+                    ? partySegment.Substring(1).Select(c => c - '0').ToArray()
+                    : Array.Empty<int>();
+                if (children?.Length > 0)
+                    searchParty = $"[{{\"adults\":{adults},\"children\":[{string.Join(',', children)}]}}]";
+                else
+                    searchParty = $"[{{\"adults\":{adults}}}]";
+            }
         }
 
     }

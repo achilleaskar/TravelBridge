@@ -48,6 +48,7 @@ namespace TravelBridge.API.Endpoints
                string? Party,
                string? SelectedRates,
                decimal? TotalPrice,
+               decimal? paymentAmount,
                CustomerInfo? CustomerInfo
            );
 
@@ -120,7 +121,7 @@ namespace TravelBridge.API.Endpoints
                 null, null,
                 reservation.Party,
                 reservation.HotelCode,
-                JsonSerializer.Serialize(reservation.Rates.Select(r => new SelectedRate { rateId = r.RateId.ToString(), count = r.Quantity }))
+                JsonSerializer.Serialize(reservation.Rates.Select(r => new SelectedRate { rateId = r.RateId, count = r.Quantity, searchParty = r.SearchParty?.Party ?? "" }))
             ));
 
             res.LabelErrorMessage = "Η πληρωμή απέτυχε. Παρακαλώ δοκιμάστε ξανά.";
@@ -141,10 +142,11 @@ namespace TravelBridge.API.Endpoints
             {
                 return new SuccessfullPaymentResponse(error: "Reservation not found", "NO_RES");
             }
+            //await webHotelierPropertiesService.SendConfirmationEmail();
 
             if (await viva.ValidatePayment(pay.OrderCode, pay.Tid, reservation.TotalAmount) && await repo.UpdatePaymentSucceed(pay.OrderCode, pay.Tid))
             {
-                await webHotelierPropertiesService.CreateBooking(reservation);
+                //await webHotelierPropertiesService.CreateBooking(reservation);
 
                 return new SuccessfullPaymentResponse
                 {
@@ -174,15 +176,15 @@ namespace TravelBridge.API.Endpoints
                 throw new InvalidCastException("Invalid checkout date format. Use dd/MM/yyyy.");
             }
 
-            List<SelectedRate>? rates;
+            List<SelectedRate>? SelectedRates;
             if (string.IsNullOrWhiteSpace(pars.SelectedRates))
             {
                 throw new InvalidCastException("Invalid selected rates");
             }
             else
             {
-                rates = RatesToList(pars.SelectedRates);
-                if (rates == null)
+                SelectedRates = RatesToList(pars.SelectedRates);
+                if (SelectedRates == null)
                 {
                     throw new InvalidCastException("Invalid selected rates");
                 }
@@ -220,7 +222,7 @@ namespace TravelBridge.API.Endpoints
             };
 
             var hotelTask = webHotelierPropertiesService.GetHotelInfo(hotelInfo[1]);
-            var availTask = webHotelierPropertiesService.GetHotelAvailabilityAsync(availReq, parsedCheckin, rates);
+            var availTask = webHotelierPropertiesService.GetHotelAvailabilityAsync(availReq, parsedCheckin, SelectedRates);
             Task.WaitAll(availTask, hotelTask);
 
             SingleAvailabilityResponse? availRes = await availTask;
@@ -244,7 +246,16 @@ namespace TravelBridge.API.Endpoints
                 Rooms = GetDistinctRoomsPerRate(availRes.Data?.Rooms)
             };
 
-            foreach (var selectedRate in rates)
+            if (!availRes.CoversRequest(SelectedRates))
+            {
+                return new PreparePaymentResponse
+                {
+                    ErrorCode = "Error",
+                    ErrorMessage = "Not enough rooms"
+                };
+            }
+
+            foreach (var selectedRate in SelectedRates)
             {
                 bool found = false;
                 foreach (var room in availRes.Data?.Rooms ?? [])
@@ -255,9 +266,9 @@ namespace TravelBridge.API.Endpoints
                         {
                             selectedRate.rateId = selectedRate.roomId;
                         }
-                        if (rate.Id.ToString().Equals(selectedRate.rateId) && rate.RemainingRooms >= selectedRate.count)
+                        if (rate.Id.Equals(selectedRate.rateId) && rate.SearchParty.party?.Equals(selectedRate.searchParty) == true && rate.RemainingRooms >= selectedRate.count)
                         {
-                            if (res.Rooms.FirstOrDefault(r => r.RateId.ToString().Equals(selectedRate.rateId)) is CheckoutRoomInfo cri)
+                            if (res.Rooms.FirstOrDefault(r => r.RateId.Equals(selectedRate.rateId) && rate.SearchParty.party?.Equals(selectedRate.searchParty) == true) is CheckoutRoomInfo cri)
                             {
                                 cri.SelectedQuantity = selectedRate.count;
                             }
@@ -279,23 +290,25 @@ namespace TravelBridge.API.Endpoints
                 }
             }
 
+            res.MergePayments(SelectedRates);
+
             res.TotalPrice = res.Rooms.Sum(r => (r.TotalPrice * r.SelectedQuantity));
 
-            if (res.TotalPrice != pars.TotalPrice)
+            if (res.TotalPrice != pars.TotalPrice || (res.PartialPayment.prepayAmount != pars.paymentAmount && res.TotalPrice != pars.paymentAmount))
             {
                 throw new InvalidOperationException("Price has changed");
             }
 
             var payment = new VivaPaymentRequest
             {
-                Amount = (int)(res.TotalPrice * 100),
+                Amount = (int)(pars.paymentAmount * 100),
                 CustomerTrns = $"reservation for {parsedCheckin:dd_MM_yy}-{parsedCheckOut:dd_MM_yy} in {res.HotelData.Name}",
                 Customer = new VivaCustomer
                 {
                     CountryCode = "GR",
-                    Email = pars.CustomerInfo?.Email,
+                    Email = pars.CustomerInfo?.Email ?? string.Empty,
                     FullName = $"{pars.CustomerInfo?.Name} {pars.CustomerInfo?.LastName}",
-                    Phone = pars.CustomerInfo?.Phone
+                    Phone = pars.CustomerInfo?.Phone ?? string.Empty
                 },
                 MerchantTrns = $"reservation for {parsedCheckin:dd_MM_yy}-{parsedCheckOut:dd_MM_yy} in {res.HotelData.Name}"
             };
@@ -386,6 +399,8 @@ namespace TravelBridge.API.Endpoints
 
             int nights = (parsedCheckOut - parsedCheckin).Days;
 
+
+
             var res = new CheckoutResponse
             {
                 ErrorCode = hotelRes.ErrorCode,
@@ -405,6 +420,13 @@ namespace TravelBridge.API.Endpoints
                 SelectedPeople = GetPartyInfo(party)
             };
 
+            if (!availRes.CoversRequest(Selectedrates))
+            {
+                res.ErrorCode = "Error";
+                res.ErrorMessage = "Not enough rooms";
+                res.Rooms = new List<CheckoutRoomInfo>();
+                return res;
+            }
 
             //TODO: recheck this validation
             //i might need to add something with sums. cause when i have the same room for dif party and remaing is 1 i need error
@@ -419,9 +441,10 @@ namespace TravelBridge.API.Endpoints
                         {
                             selectedRate.rateId = selectedRate.roomId;
                         }
-                        if (rate.Id.ToString().Equals(selectedRate.rateId) && rate.RemainingRooms >= selectedRate.count)
+
+                        if (rate.Id.Equals(selectedRate.rateId) && rate.SearchParty.party?.Equals(selectedRate.searchParty) == true && rate.RemainingRooms >= selectedRate.count)
                         {
-                            if (res.Rooms.FirstOrDefault(r => r.RateId.ToString().Equals(selectedRate.rateId)) is CheckoutRoomInfo cri)
+                            if (res.Rooms.FirstOrDefault(r => r.RateId.Equals(selectedRate.rateId) && rate.SearchParty.party?.Equals(selectedRate.searchParty) == true) is CheckoutRoomInfo cri)
                             {
                                 cri.SelectedQuantity = selectedRate.count;
                             }
@@ -442,13 +465,13 @@ namespace TravelBridge.API.Endpoints
                     throw new InvalidOperationException("Rates don't exist any more");
                 }
             }
-            res.MergePayments(Selectedrates);//TODO: finish this
+            res.MergePayments(Selectedrates);
             res.TotalPrice = res.Rooms.Sum(r => (r.TotalPrice * r.SelectedQuantity));
 
             return res;
         }
- 
-        private string GetPartyInfo(string party)
+
+        private static string GetPartyInfo(string party)
         {
             try
             {
@@ -504,6 +527,7 @@ namespace TravelBridge.API.Endpoints
                             HasCancellation = rate.RateProperties.HasCancellation,
                             CancellationFees = rate.RateProperties.CancellationFees,
                             Payments = rate.RateProperties.Payments,
+                            SearchParty = rate.SearchParty
                         }
                     });
                 }
@@ -516,13 +540,13 @@ namespace TravelBridge.API.Endpoints
         {
             var details = new Dictionary<string, (string Description, object Example, bool Required)>
             {
-                { "checkin", ("The check-in date for the search (format: dd/MM/yyyy).", "08/06/2025", true) },
-                { "checkOut", ("The check-out date for the search (format: dd/MM/yyyy).", "10/06/2025", true) },
+                { "checkin", ("The check-in date for the search (format: dd/MM/yyyy).", "17/06/2025", true) },
+                { "checkOut", ("The check-out date for the search (format: dd/MM/yyyy).", "20/06/2025", true) },
                 { "adults", ("The number of adults for the search. (only if 1 room)", 2, false) },
                 { "children", ("The ages of children, comma-separated (e.g., '5,10'). (only if 1 room)", "5,10", false) },
                 { "party", ("Additional information about the party (required if more than 1 room. always wins).", "[{\"adults\":2,\"children\":[2,6]},{\"adults\":3}]", false) },
                 { "hotelId", ("The id of the hotel", "1-VAROSVILL", true) },
-                { "selectedRates", ("The selected rates", "[{\"roomId\":\"328000\",\"count\":1,\"roomType\":\"NGSTDS\",\"searchParty\":\"[{\\\"adults\\\":2,\\\"children\\\":[2,6]}]\"},{\"roomId\":\"273065\",\"count\":1,\"roomType\":\"JSUI\",\"searchParty\":\"[{\\\"adults\\\":3}]\"}]\r\n", true) },
+                { "selectedRates", ("The selected rates", "[{\"rateId\":\"328000-226\",\"count\":1,\"roomType\":\"SUPFAM\"},{\"rateId\":\"273063-3\",\"count\":1,\"roomType\":\"EXEDBL\"}]", true) },
             };
 
             return details.TryGetValue(paramName, out (string Description, object Example, bool Required) value) ? value : ("No description available.", "N/A", false);
@@ -536,14 +560,15 @@ namespace TravelBridge.API.Endpoints
                 """
                 {
                     "hotelId": "1-VAROSVILL",
-                    "checkIn": "08/06/2025",
-                    "checkOut": "10/06/2025",
+                    "checkIn": "17/06/2025",
+                    "checkOut": "20/06/2025",
                     "rooms": 1,
                     "children": "0",
                     "adults": 2,
-                    "TotalPrice": 1224,
+                    "TotalPrice": 943,
+                    "paymentAmount": 259.25,
                     "party": "[{\"adults\":2,\"children\":[2,6]},{\"adults\":3}]",
-                    "selectedRates":"[{\"roomId\":\"328000\",\"count\":1,\"roomType\":\"NGSTDS\"},{\"roomId\":\"273065\",\"count\":1,\"roomType\":\"JSUI\"}]",
+                    "selectedRates":"[{\"rateId\":\"328000-226\",\"count\":1,\"roomType\":\"SUPFAM\"},{\"rateId\":\"273063-3\",\"count\":1,\"roomType\":\"EXEDBL\"}]",
                     "customerInfo": {
                         "name": "akis",
                         "lastName": "pakis",
@@ -565,7 +590,7 @@ namespace TravelBridge.API.Endpoints
                 operation.RequestBody.Content["application/json"].Example = new Microsoft.OpenApi.Any.OpenApiString(
                 """
                     {
-                      "orderCode":"1902628168872600"
+                      "orderCode":"4918784106772600"
                     }
                     """
                 );
@@ -580,8 +605,8 @@ namespace TravelBridge.API.Endpoints
                 operation.RequestBody.Content["application/json"].Example = new Microsoft.OpenApi.Any.OpenApiString(
                 """
                     {
-                        "tid":"7d8c9308-26b1-45d6-a8a8-bdc39d1b3b71",
-                        "orderCode":"6471498898772606"
+                        "tid":"dc90abcc-0350-4383-a624-5821811aedb9",
+                        "orderCode":"7224745916872609"
                     }
                     """
                 );

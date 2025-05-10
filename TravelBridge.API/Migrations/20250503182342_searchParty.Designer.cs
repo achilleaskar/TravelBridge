@@ -3,6 +3,7 @@ using System;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
 using Microsoft.EntityFrameworkCore.Metadata;
+using Microsoft.EntityFrameworkCore.Migrations;
 using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 using TravelBridge.API.DataBase;
 
@@ -11,9 +12,11 @@ using TravelBridge.API.DataBase;
 namespace TravelBridge.API.Migrations
 {
     [DbContext(typeof(AppDbContext))]
-    partial class AppDbContextModelSnapshot : ModelSnapshot
+    [Migration("20250503182342_searchParty")]
+    partial class searchParty
     {
-        protected override void BuildModel(ModelBuilder modelBuilder)
+        /// <inheritdoc />
+        protected override void BuildTargetModel(ModelBuilder modelBuilder)
         {
 #pragma warning disable 612, 618
             modelBuilder
@@ -58,56 +61,6 @@ namespace TravelBridge.API.Migrations
                     b.HasKey("Id");
 
                     b.ToTable("Customers");
-                });
-
-            modelBuilder.Entity("TravelBridge.API.Models.DB.NextPaymentDB", b =>
-                {
-                    b.Property<int>("Id")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("int");
-
-                    MySqlPropertyBuilderExtensions.UseMySqlIdentityColumn(b.Property<int>("Id"));
-
-                    b.Property<decimal?>("Amount")
-                        .HasColumnType("decimal(65,30)");
-
-                    b.Property<DateTime?>("DateCreated")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("datetime(6)")
-                        .HasDefaultValueSql("CURRENT_TIMESTAMP");
-
-                    b.Property<DateTime?>("DueDate")
-                        .HasColumnType("datetime(6)");
-
-                    b.Property<int?>("PartialPaymentDBId")
-                        .HasColumnType("int");
-
-                    b.HasKey("Id");
-
-                    b.HasIndex("PartialPaymentDBId");
-
-                    b.ToTable("NextPaymentDB");
-                });
-
-            modelBuilder.Entity("TravelBridge.API.Models.DB.PartialPaymentDB", b =>
-                {
-                    b.Property<int>("Id")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("int");
-
-                    MySqlPropertyBuilderExtensions.UseMySqlIdentityColumn(b.Property<int>("Id"));
-
-                    b.Property<DateTime?>("DateCreated")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("datetime(6)")
-                        .HasDefaultValueSql("CURRENT_TIMESTAMP");
-
-                    b.Property<decimal>("prepayAmount")
-                        .HasColumnType("decimal(65,30)");
-
-                    b.HasKey("Id");
-
-                    b.ToTable("PartialPaymentDB");
                 });
 
             modelBuilder.Entity("TravelBridge.API.Models.DB.PartyItemDB", b =>
@@ -219,15 +172,9 @@ namespace TravelBridge.API.Migrations
                         .HasMaxLength(70)
                         .HasColumnType("varchar(70)");
 
-                    b.Property<int>("PartialPaymentId")
-                        .HasColumnType("int");
-
                     b.Property<string>("Party")
                         .HasMaxLength(150)
                         .HasColumnType("varchar(150)");
-
-                    b.Property<decimal>("RemainingAmount")
-                        .HasColumnType("DECIMAL(10,2)");
 
                     b.Property<decimal>("TotalAmount")
                         .HasColumnType("DECIMAL(10,2)");
@@ -238,8 +185,6 @@ namespace TravelBridge.API.Migrations
                     b.HasKey("Id");
 
                     b.HasIndex("CustomerId");
-
-                    b.HasIndex("PartialPaymentId");
 
                     b.ToTable("Reservations");
                 });
@@ -270,10 +215,8 @@ namespace TravelBridge.API.Migrations
                     b.Property<byte>("Quantity")
                         .HasColumnType("TINYINT UNSIGNED");
 
-                    b.Property<string>("RateId")
-                        .IsRequired()
-                        .HasMaxLength(20)
-                        .HasColumnType("varchar(20)");
+                    b.Property<int>("RateId")
+                        .HasColumnType("int");
 
                     b.Property<int?>("ReservationId")
                         .HasColumnType("int");
@@ -288,13 +231,6 @@ namespace TravelBridge.API.Migrations
                     b.HasIndex("SearchPartyId");
 
                     b.ToTable("ReservationRate");
-                });
-
-            modelBuilder.Entity("TravelBridge.API.Models.DB.NextPaymentDB", b =>
-                {
-                    b.HasOne("TravelBridge.API.Models.DB.PartialPaymentDB", null)
-                        .WithMany("nextPayments")
-                        .HasForeignKey("PartialPaymentDBId");
                 });
 
             modelBuilder.Entity("TravelBridge.API.Models.DB.Payment", b =>
@@ -321,15 +257,7 @@ namespace TravelBridge.API.Migrations
                         .HasForeignKey("CustomerId")
                         .OnDelete(DeleteBehavior.Restrict);
 
-                    b.HasOne("TravelBridge.API.Models.DB.PartialPaymentDB", "PartialPayment")
-                        .WithMany()
-                        .HasForeignKey("PartialPaymentId")
-                        .OnDelete(DeleteBehavior.Cascade)
-                        .IsRequired();
-
                     b.Navigation("Customer");
-
-                    b.Navigation("PartialPayment");
                 });
 
             modelBuilder.Entity("TravelBridge.API.Models.DB.ReservationRate", b =>
@@ -353,11 +281,6 @@ namespace TravelBridge.API.Migrations
                     b.Navigation("Payments");
 
                     b.Navigation("Reservations");
-                });
-
-            modelBuilder.Entity("TravelBridge.API.Models.DB.PartialPaymentDB", b =>
-                {
-                    b.Navigation("nextPayments");
                 });
 
             modelBuilder.Entity("TravelBridge.API.Models.DB.Reservation", b =>

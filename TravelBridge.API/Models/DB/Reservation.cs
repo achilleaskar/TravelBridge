@@ -1,5 +1,6 @@
 using System.ComponentModel.DataAnnotations;
 using System.ComponentModel.DataAnnotations.Schema;
+using TravelBridge.API.Contracts;
 
 namespace TravelBridge.API.Models.DB
 {
@@ -29,6 +30,10 @@ namespace TravelBridge.API.Models.DB
         public int? CustomerId { get; set; }
         public List<ReservationRate> Rates { get; set; }
         public List<Payment> Payments { get; set; }
+        public PartialPaymentDB PartialPayment { get; set; }
+       
+        [Column(TypeName = "DECIMAL(10,2)")]
+        public decimal RemainingAmount { get; set; }
         #endregion
     }
 }
