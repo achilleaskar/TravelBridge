@@ -84,6 +84,7 @@ namespace TravelBridge.API.Helpers.Extensions
                         {
                             TotalPrice = rate.GetTotalPrice(),
                             SalePrice = rate.GetSalePrice(),
+                            NetPrice = rate.Pricing.TotalPrice,
                             Id = rate.Id.ToString(),
                             SearchParty = rate.SearchParty,
                             RateProperties = new RateProperties
@@ -148,7 +149,7 @@ namespace TravelBridge.API.Helpers.Extensions
             {
                 result.Add(new StringAmount
                 {
-                    Description = $"έως {fees.First().After?.AddHours(General.offset):dd-MM-yyyy HH:00}",
+                    Description = $"έως {fees.First().After:dd/MM/yyyy HH:00}",
                     Amount = 0 // No charge before first cancellation fee
                 });
             }
@@ -160,7 +161,7 @@ namespace TravelBridge.API.Helpers.Extensions
                 {
                     result.Add(new StringAmount
                     {
-                        Description = $"έως {fee.After.Value.AddHours(General.offset):dd-MM-yyyy HH:00}",
+                        Description = $"έως {fee.After.Value.AddHours(General.offset):dd/MM/yyyy HH:00}",
                         Amount = decimal.Round((previous.Fee ?? 0) * rate.ProfitPerc, 2)
                     });
                 }
@@ -173,7 +174,7 @@ namespace TravelBridge.API.Helpers.Extensions
             {
                 result.Add(new StringAmount
                 {
-                    Description = $"έως {checkIn.AddHours(General.offset):dd-MM-yyyy}",
+                    Description = $"έως {checkIn.AddHours(General.offset):dd/MM/yyyy}",
                     Amount = decimal.Round((last.Fee ?? 0) * rate.ProfitPerc, 2)
                 });
             }

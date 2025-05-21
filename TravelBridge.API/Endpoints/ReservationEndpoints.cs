@@ -9,7 +9,6 @@ using TravelBridge.API.Models;
 using TravelBridge.API.Models.ExternalModels;
 using TravelBridge.API.Models.WebHotelier;
 using TravelBridge.API.Repositories;
-using TravelBridge.API.Services.ExternalServices;
 using TravelBridge.API.Services.Viva;
 using TravelBridge.API.Services.WebHotelier;
 using static TravelBridge.API.Helpers.General;
@@ -19,12 +18,10 @@ namespace TravelBridge.API.Endpoints
     public class ReservationEndpoints
     {
         private readonly WebHotelierPropertiesService webHotelierPropertiesService;
-        private readonly MapBoxService mapBoxService;
 
-        public ReservationEndpoints(WebHotelierPropertiesService webHotelierPropertiesService, MapBoxService mapBoxService)
+        public ReservationEndpoints(WebHotelierPropertiesService webHotelierPropertiesService)
         {
             this.webHotelierPropertiesService = webHotelierPropertiesService;
-            this.mapBoxService = mapBoxService;
         }
 
         public record SubmitSearchParameters
@@ -48,18 +45,22 @@ namespace TravelBridge.API.Endpoints
                string? Party,
                string? SelectedRates,
                decimal? TotalPrice,
-               decimal? paymentAmount,
+               decimal? PrepayAmount,
                CustomerInfo? CustomerInfo
-           );
-
+           )
+        {
+            public decimal? PrepayAmount { get; init; } = (PrepayAmount == null || PrepayAmount == 0) ? TotalPrice : PrepayAmount;
+        };
 
         public record CustomerInfo(
-            string? Name,
+            string? FirstName,
             string? LastName,
             string? Email,
             string? Phone,
             string? Requests
-        );
+        )
+        {
+        }
 
         public record PaymentInfo
         (
@@ -98,6 +99,19 @@ namespace TravelBridge.API.Endpoints
            await ConfirmPayment(pay, repo, viva))
                .WithName("PaymentSucceed")
                .WithOpenApi(CustomizePaymentSucceedOperation);
+
+            apiGroup.MapPost("/cancelBooking",
+          [EndpointSummary("cancels booking")]
+            async (string bookingNumber, ReservationsRepository repo) =>
+          await CancelBooking(bookingNumber, repo))
+              .WithName("CancelBooking");
+        }
+
+        private async Task CancelBooking(string OrderCode, ReservationsRepository repo)
+        {
+            var reservation = await repo.GetReservationBasicDataByPaymentCode(OrderCode);
+
+            await webHotelierPropertiesService.CancelBooking(reservation, repo);
         }
 
         private async Task<CheckoutResponse> GetOrderInfo(PaymentInfo pay, ReservationsRepository repo)
@@ -144,19 +158,30 @@ namespace TravelBridge.API.Endpoints
             }
             //await webHotelierPropertiesService.SendConfirmationEmail();
 
-            if (await viva.ValidatePayment(pay.OrderCode, pay.Tid, reservation.TotalAmount) && await repo.UpdatePaymentSucceed(pay.OrderCode, pay.Tid))
+            try
             {
-                //await webHotelierPropertiesService.CreateBooking(reservation);
-
-                return new SuccessfullPaymentResponse
+                if (await viva.ValidatePayment(pay.OrderCode, pay.Tid, reservation) && await repo.UpdatePaymentSucceed(pay.OrderCode, pay.Tid))
                 {
-                    CheckIn = reservation.CheckIn.ToString("dd/MM/yyyy"),
-                    CheckOut = reservation.CheckOut.ToString("dd/MM/yyyy"),
-                    HotelName = reservation.HotelName ?? "",
-                    ReservationId = reservation.Id
-                };
+                    await webHotelierPropertiesService.CreateBooking(reservation, repo);
+
+                    return new SuccessfullPaymentResponse
+                    {
+                        SuccessfullPayment = true,
+                        Data = new DataSucess
+                        {
+                            CheckIn = reservation.CheckIn.ToString("dd/MM/yyyy"),
+                            CheckOut = reservation.CheckOut.ToString("dd/MM/yyyy"),
+                            HotelName = reservation.HotelName ?? "",
+                            ReservationId = reservation.Id
+                        }
+                    };
+                }
+                else
+                {
+                    return new SuccessfullPaymentResponse(error: $"Υπήρξε πρόβλημα με την πληρωμή της κράτησής σας με αριθμό {reservation.Id}, παρακαλώ επικοινωνήστε μαζί μας.", "RES_ERROR");
+                }
             }
-            else
+            catch (Exception ex)
             {
                 return new SuccessfullPaymentResponse(error: $"Υπήρξε πρόβλημα με την πληρωμή της κράτησής σας με αριθμό {reservation.Id}, παρακαλώ επικοινωνήστε μαζί μας.", "RES_ERROR");
             }
@@ -240,9 +265,12 @@ namespace TravelBridge.API.Endpoints
                 HotelData = new CheckoutHotelInfo
                 {
                     Id = hotelRes.Data.Id,
+                    Name = hotelRes.Data.Name
                 },
                 CheckIn = pars.CheckIn,
                 CheckOut = pars.CheckOut,
+                CheckInTime = hotelRes.Data.Operation.CheckinTime,
+                CheckOutTime = hotelRes.Data.Operation.CheckoutTime,
                 Rooms = GetDistinctRoomsPerRate(availRes.Data?.Rooms)
             };
 
@@ -294,20 +322,20 @@ namespace TravelBridge.API.Endpoints
 
             res.TotalPrice = res.Rooms.Sum(r => (r.TotalPrice * r.SelectedQuantity));
 
-            if (res.TotalPrice != pars.TotalPrice || (res.PartialPayment.prepayAmount != pars.paymentAmount && res.TotalPrice != pars.paymentAmount))
+            if (res.TotalPrice != pars.TotalPrice || (res.PartialPayment != null && (res.PartialPayment.prepayAmount != pars.PrepayAmount && res.TotalPrice != pars.PrepayAmount)))
             {
                 throw new InvalidOperationException("Price has changed");
             }
 
             var payment = new VivaPaymentRequest
             {
-                Amount = (int)(pars.paymentAmount * 100),
+                Amount = (int)(pars.PrepayAmount * 100),
                 CustomerTrns = $"reservation for {parsedCheckin:dd_MM_yy}-{parsedCheckOut:dd_MM_yy} in {res.HotelData.Name}",
                 Customer = new VivaCustomer
                 {
                     CountryCode = "GR",
                     Email = pars.CustomerInfo?.Email ?? string.Empty,
-                    FullName = $"{pars.CustomerInfo?.Name} {pars.CustomerInfo?.LastName}",
+                    FullName = $"{pars.CustomerInfo?.FirstName} {pars.CustomerInfo?.LastName}",
                     Phone = pars.CustomerInfo?.Phone ?? string.Empty
                 },
                 MerchantTrns = $"reservation for {parsedCheckin:dd_MM_yy}-{parsedCheckOut:dd_MM_yy} in {res.HotelData.Name}"
@@ -398,8 +426,6 @@ namespace TravelBridge.API.Endpoints
             hotelRes.Data.Provider = Provider.WebHotelier;
 
             int nights = (parsedCheckOut - parsedCheckin).Days;
-
-
 
             var res = new CheckoutResponse
             {
@@ -517,6 +543,7 @@ namespace TravelBridge.API.Endpoints
                         RateId = rate.Id,
                         SelectedQuantity = 0,
                         TotalPrice = rate.TotalPrice,
+                        NetPrice = rate.NetPrice,
                         RateProperties = new CheckoutRateProperties
                         {
                             Board = rate.RateProperties.Board,
@@ -565,12 +592,12 @@ namespace TravelBridge.API.Endpoints
                     "rooms": 1,
                     "children": "0",
                     "adults": 2,
-                    "TotalPrice": 943,
-                    "paymentAmount": 259.25,
+                    "TotalPrice": 930,
+                    "prepayAmount": 255.75,
                     "party": "[{\"adults\":2,\"children\":[2,6]},{\"adults\":3}]",
                     "selectedRates":"[{\"rateId\":\"328000-226\",\"count\":1,\"roomType\":\"SUPFAM\"},{\"rateId\":\"273063-3\",\"count\":1,\"roomType\":\"EXEDBL\"}]",
                     "customerInfo": {
-                        "name": "akis",
+                        "firstName": "akis",
                         "lastName": "pakis",
                         "email": "aa@aa.com",
                         "phone": "6977771645",
@@ -583,6 +610,7 @@ namespace TravelBridge.API.Endpoints
 
             return operation;
         }
+
         private static OpenApiOperation CustomizePaymentFailedOperation(OpenApiOperation operation)
         {
             if (operation.RequestBody?.Content.ContainsKey("application/json") == true)
@@ -598,6 +626,7 @@ namespace TravelBridge.API.Endpoints
 
             return operation;
         }
+
         private static OpenApiOperation CustomizePaymentSucceedOperation(OpenApiOperation operation)
         {
             if (operation.RequestBody?.Content.ContainsKey("application/json") == true)
@@ -614,7 +643,6 @@ namespace TravelBridge.API.Endpoints
 
             return operation;
         }
-
 
         private static OpenApiOperation CustomizeCheckoutOperation(OpenApiOperation operation)
         {
@@ -656,6 +684,5 @@ namespace TravelBridge.API.Endpoints
         }
 
         // Helper function for parameter details
-
     }
 }

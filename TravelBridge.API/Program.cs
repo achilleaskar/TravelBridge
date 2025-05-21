@@ -3,6 +3,7 @@ using Microsoft.AspNetCore.Routing.Constraints;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Options;
 using Microsoft.OpenApi.Models;
+using Serilog;
 using TravelBridge.API.DataBase;
 using TravelBridge.API.Endpoints;
 using TravelBridge.API.Models.Apis;
@@ -14,11 +15,26 @@ using TravelBridge.API.Services.WebHotelier;
 var builder = WebApplication.CreateSlimBuilder(args);
 string? connectionString = builder.Configuration.GetConnectionString("MariaDBConnection");
 
+// Configure Serilog
+Log.Logger = new LoggerConfiguration()
+    .MinimumLevel.Information()
+    .WriteTo.Console()
+    .WriteTo.File(
+        path: "logs/log.txt",              // Single base filename
+        fileSizeLimitBytes: 50 * 1024 * 1024, // 50 MB
+        rollOnFileSizeLimit: true,            // Enable rolling when size exceeds
+        retainedFileCountLimit: 10            // Keep only last 10 files (optional)
+    )
+    .CreateLogger();
+
+builder.Host.UseSerilog();
+
 builder.Services.AddDbContext<AppDbContext>(options =>
     options.UseMySql(
         connectionString,
         ServerVersion.Parse("10.11.10-MariaDB"),
-        mySqlOptions => {
+        mySqlOptions =>
+        {
             mySqlOptions.EnableRetryOnFailure(3, TimeSpan.FromSeconds(10), null);
         }
     ));
@@ -40,11 +56,6 @@ builder.Services.AddResponseCompression(options =>
     options.EnableForHttps = true; // Enable compression for HTTPS requests
     options.Providers.Add<GzipCompressionProvider>();
 });
-
-//builder.Services.Configure<GzipCompressionProviderOptions>(options =>
-//{
-//    options.Level = CompressionLevel.Fastest; // or CompressionLevel.Optimal
-//});
 
 builder.Services
     .AddOpenApi()
@@ -130,6 +141,36 @@ app.UseResponseCompression();
 // Use the CORS policy
 app.UseCors("AllowAll");
 
+app.Use(async (context, next) =>
+{
+    var logger = context.RequestServices.GetRequiredService<ILogger<Program>>();
+
+    // Read request body
+    context.Request.EnableBuffering();
+    var requestBody = await new StreamReader(context.Request.Body).ReadToEndAsync();
+    context.Request.Body.Position = 0;
+
+    logger.LogInformation("Request {Method} {Path} - Body: {Body}", context.Request.Method, context.Request.Path, requestBody);
+
+    // Capture the response body
+    var originalBody = context.Response.Body;
+    using var newBody = new MemoryStream();
+    context.Response.Body = newBody;
+
+    await next(); // Call the next middleware / endpoint
+
+    // Read response body
+    newBody.Seek(0, SeekOrigin.Begin);
+    var responseBody = await new StreamReader(newBody).ReadToEndAsync();
+    newBody.Seek(0, SeekOrigin.Begin);
+
+    logger.LogInformation("Response {StatusCode} - Body: {Body}", context.Response.StatusCode, responseBody);
+
+    // Copy the response back to the original stream
+    await newBody.CopyToAsync(originalBody);
+    context.Response.Body = originalBody;
+});
+
 // Create a scope for the DI container
 using (var scope = app.Services.CreateScope())
 {
@@ -148,8 +189,7 @@ using (var scope = app.Services.CreateScope())
 #endregion Register Endpoint Groups
 
 
-    app.UseSwagger();
-    app.UseSwaggerUI();
-
+app.UseSwagger();
+app.UseSwaggerUI();
 
 await app.RunAsync();

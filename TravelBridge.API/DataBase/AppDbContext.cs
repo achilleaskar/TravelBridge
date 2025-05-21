@@ -9,6 +9,7 @@ namespace TravelBridge.API.DataBase
 
         public DbSet<Customer> Customers { get; set; }
         public DbSet<Reservation> Reservations { get; set; }
+        public DbSet<ReservationRate> ReservationRates { get; set; }
         public DbSet<Payment> Payments { get; set; }
 
         protected override void OnModelCreating(ModelBuilder modelBuilder)

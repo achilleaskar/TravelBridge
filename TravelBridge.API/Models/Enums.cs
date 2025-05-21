@@ -11,6 +11,7 @@ namespace TravelBridge.API.Models
         location = 2
     }
 
+
     public enum Language
     {
         [Description("Greek")]
@@ -20,6 +21,22 @@ namespace TravelBridge.API.Models
         en = 2
     }
 
+    public enum BookingStatus
+    {
+        [Description("New")]
+        New = 0,
+        [Description("Pending")]
+        Pending = 1,
+        [Description("Running")]
+        Running = 2,
+        [Description("Confirmed")]
+        Confirmed = 3,
+        [Description("Cancelled")]
+        Cancelled = 4,
+        [Description("Error")]
+        Error = 5
+    }
+   
     public enum Provider
     {
         [Description("Web Hotelier")]

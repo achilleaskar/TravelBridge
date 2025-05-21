@@ -4,6 +4,7 @@ using System.Text.Json;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.OpenApi.Models;
 using TravelBridge.API.Contracts;
+using TravelBridge.API.Helpers;
 using TravelBridge.API.Helpers.Extensions;
 using TravelBridge.API.Models;
 using TravelBridge.API.Models.Plugin.AutoComplete;
@@ -18,11 +19,13 @@ namespace TravelBridge.API.Endpoints
     {
         private readonly WebHotelierPropertiesService webHotelierPropertiesService;
         private readonly MapBoxService mapBoxService;
+        private readonly ILogger<SearchPluginEndpoints> logger;
 
-        public SearchPluginEndpoints(WebHotelierPropertiesService webHotelierPropertiesService, MapBoxService mapBoxService)
+        public SearchPluginEndpoints(WebHotelierPropertiesService webHotelierPropertiesService, MapBoxService mapBoxService, ILogger<SearchPluginEndpoints> logger)
         {
             this.webHotelierPropertiesService = webHotelierPropertiesService;
             this.mapBoxService = mapBoxService;
+            this.logger = logger;
         }
 
         public record SubmitSearchParameters
@@ -174,7 +177,8 @@ namespace TravelBridge.API.Endpoints
             {
                 party = BuildMultiRoomJson(pars.party);
             }
-            #endregion
+
+            #endregion Param Validation
 
             MultiAvailabilityRequest req = new()
             {
@@ -194,12 +198,12 @@ namespace TravelBridge.API.Endpoints
 
             int skip = (pars.page ?? 0) * 20;
 
-            var res = await webHotelierPropertiesService.GetAvailabilityAsync(req) 
+            var res = await webHotelierPropertiesService.GetAvailabilityAsync(req)
                 ?? new PluginSearchResponse
-                    {
-                        Results = new List<WebHotel>(),
-                        Filters = new(),
-                    };
+                {
+                    Results = new List<WebHotel>(),
+                    Filters = new(),
+                };
 
             res.SearchTerm = pars.searchTerm;
             int nights = (parsedCheckOut - parsedCheckin).Days;
@@ -221,6 +225,11 @@ namespace TravelBridge.API.Endpoints
                 {
                     hotel.Rates = new List<MultiRate>();
                 }
+
+            if (res.Results.IsNullOrEmpty())
+            {
+                res.Filters = new List<Filter>();
+            }
             return res;
         }
 
@@ -241,9 +250,11 @@ namespace TravelBridge.API.Endpoints
                     case "hotelTypes":
                         filter.Values.ForEach(v => v.Selected = pars.hotelTypes?.Split(',').Contains(v.Id) == true);
                         break;
+
                     case "rating":
                         filter.Values.ForEach(v => v.Selected = pars.rating?.Split(',').Contains(v.Id) == true);
                         break;
+
                     case "boardTypes":
                         filter.Values.ForEach(v => v.Selected = pars.boardTypes?.Split(',').Contains(v.Id) == true);
                         break;
@@ -296,7 +307,7 @@ namespace TravelBridge.API.Endpoints
                 allHotesls = allHotesls.Where(h => selectedRatings.Contains((h.Rating ?? 0).ToString()));
             }
 
-            res.Results = allHotesls.ToList();
+            res.Results = allHotesls?.ToList() ?? new List<WebHotel>();
         }
 
         private void CalculateAppliedFilters(PluginSearchResponse res)
@@ -338,17 +349,18 @@ namespace TravelBridge.API.Endpoints
         private void FillPriceFilter(PluginSearchResponse res, int nights)
         {
             res.Filters ??= new();
-            res.Filters.Add(new Filter("Ευρος Τιμής", "price", Math.Floor(res.Results.Min(h => h.MinPrice) / nights ?? 0), Math.Floor(res.Results.Max(h => h.MinPrice) / nights ?? 0), true));
+            if (nights > 0 && res.Results?.Count() > 0)
+                res.Filters.Add(new Filter("Ευρος Τιμής", "price", Math.Floor((res.Results?.Min(h => h.MinPrice) ?? 0) / nights), Math.Floor(res.Results.Max(h => h.MinPrice) / nights ?? 0), true));
         }
 
         private static Filter GetBoards(PluginSearchResponse res)
         {
-            foreach (var hotel in res.Results)
+            foreach (var hotel in res.Results ?? new List<WebHotel>())
             {
                 hotel.Boards = hotel.Rates.MapBoardTypes();
             }
 
-            var boardCounts = res.Results
+            var boardCounts = (res.Results ?? new List<WebHotel>())
                 .SelectMany(hotel => hotel.Boards)
                 .GroupBy(board => new { board.Id, board.Name });
 
@@ -360,7 +372,6 @@ namespace TravelBridge.API.Endpoints
                     Count = h.Count()
                 }).ToList(),
                 false);
-
 
             var fv0 = boards.Values.FirstOrDefault(v => v.Id == "0");
             if (fv0 != null)
@@ -384,12 +395,12 @@ namespace TravelBridge.API.Endpoints
 
         private Filter GetTypes(PluginSearchResponse res)
         {
-            foreach (var item in res.Results)
+            foreach (var item in res.Results ?? new List<WebHotel>())
             {
                 item.MappedTypes = item.OriginalType.MapToType();
             }
 
-            var groupedHotels = GroupHotelsByCategory(res.Results.ToList());
+            var groupedHotels = GroupHotelsByCategory(res.Results?.ToList() ?? new List<WebHotel>());
 
             return new Filter("Τύποι Καταλυμμάτων", "hotelTypes",
                 groupedHotels.Select(h => new FilterValue
@@ -405,20 +416,21 @@ namespace TravelBridge.API.Endpoints
         {
             var ratingFilter = new Filter("Αστέρια", "rating", new(), false);
 
-            foreach (var rating in res.Results.Where(r => r.Rating != null).GroupBy(r => r.Rating).OrderBy(r => r.Key))
-            {
-                var ratingValue = GetRatingName(rating.Key, Language.el);
-                if (ratingValue == null)
+            if (res.Results != null)
+                foreach (var rating in res.Results.Where(r => r.Rating != null).GroupBy(r => r.Rating).OrderBy(r => r.Key))
                 {
-                    continue;
+                    var ratingValue = GetRatingName(rating.Key, Language.el);
+                    if (ratingValue == null)
+                    {
+                        continue;
+                    }
+                    ratingFilter.Values.Add(new FilterValue
+                    {
+                        Count = rating.Count(),
+                        Id = rating.Key?.ToString() ?? "null",
+                        Name = ratingValue
+                    });
                 }
-                ratingFilter.Values.Add(new FilterValue
-                {
-                    Count = rating.Count(),
-                    Id = rating.Key?.ToString() ?? "null",
-                    Name = ratingValue
-                });
-            }
 
             return ratingFilter;
         }
@@ -544,6 +556,8 @@ namespace TravelBridge.API.Endpoints
 
         private async Task<AutoCompleteResponse> GetAutocompleteResults(string? searchQuery)
         {
+            logger.LogInformation("Autocomplete search query: {searchQuery}", searchQuery);
+
             if (string.IsNullOrWhiteSpace(searchQuery) || searchQuery.Length < 3)
             {
                 return new AutoCompleteResponse
@@ -555,7 +569,6 @@ namespace TravelBridge.API.Endpoints
 
             var hotelsTask = webHotelierPropertiesService.SearchPropertyAsync(searchQuery);
             var locationsTask = mapBoxService.GetLocations(searchQuery, "el");
-
             await Task.WhenAll(hotelsTask, locationsTask);
 
             return new AutoCompleteResponse
