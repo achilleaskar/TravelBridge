@@ -28,26 +28,34 @@ namespace TravelBridge.API.Repositories
                     TotalAmount = res.TotalPrice,
                     TotalRooms = res.Rooms.Count,
                     Party = party,
-                    Customer = new Customer(pars.CustomerInfo?.Name, pars.CustomerInfo?.LastName, pars.CustomerInfo?.Phone, "GR", pars.CustomerInfo?.Email),
+                    CheckInTime = res.CheckInTime,
+                    CheckOutTime = res.CheckOutTime,
+                    BookingStatus = BookingStatus.Pending,
+                    Customer = new Customer(pars.CustomerInfo?.FirstName, pars.CustomerInfo?.LastName, pars.CustomerInfo?.Phone, "GR", pars.CustomerInfo?.Email, pars.CustomerInfo?.Requests),
                     Payments = new List<Payment>
                     {
                         new() {
-                            Amount = pars.paymentAmount??throw new InvalidDataException("Invalid Payment Amount"),
+                            Amount = pars.PrepayAmount??throw new InvalidDataException("Invalid Payment Amount"),
                             OrderCode = orderCode,
                             PaymentProvider=PaymentProvider.Viva,
-                            PaymentStatus=PaymentStatus.Pending
+                            PaymentStatus= PaymentStatus.Pending
                         }
                     },
-                    PartialPayment = new PartialPaymentDB(res.PartialPayment),
-                    RemainingAmount = res.TotalPrice=res.PartialPayment.prepayAmount,
+                    PartialPayment = new PartialPaymentDB(res.PartialPayment,res.TotalPrice),
+                    RemainingAmount = res.TotalPrice - res.PartialPayment?.prepayAmount?? res.TotalPrice,
                     Rates = res.Rooms.Select(r => new ReservationRate
                     {
                         HotelCode = pars.HotelId,
                         Price = r.TotalPrice,
+                        Name = r.RoomName,
                         Provider = Provider.WebHotelier,
+                        BookingStatus = BookingStatus.Pending,
                         RateId = r.RateId,
+                        NetPrice = r.NetPrice,
                         Quantity = r.SelectedQuantity,
-                        SearchParty = new(r.RateProperties.SearchParty)
+                        SearchParty = new(r.RateProperties.SearchParty),
+                        CancelationInfo = r.RateProperties.CancellationName,
+                        BoardInfo= r.RateProperties.Board,
                     }).ToList()
                 };
 
@@ -73,15 +81,25 @@ namespace TravelBridge.API.Repositories
         {
             return await db.Reservations
                 .Where(r => r.Payments.Any(p => p.OrderCode == orderCode))
-                .Select(r => new Reservation
-                {
-                    Id = r.Id,
-                    CheckIn = r.CheckIn,
-                    CheckOut = r.CheckOut,
-                    HotelName = r.HotelName,
-                    TotalAmount = r.TotalAmount,
-                    Rates = r.Rates
-                })
+                .Include(r => r.Customer)
+                .Include(r => r.PartialPayment)
+                .Include(r => r.Payments)
+                .Include(r => r.Rates).ThenInclude(p => p.SearchParty)
+                //.Include(r=>r.Rates)
+
+                //.Select(r => new Reservation
+                //{
+                //    Id = r.Id,
+                //    CheckIn = r.CheckIn,
+                //    CheckOut = r.CheckOut,
+                //    HotelName = r.HotelName,
+                //    HotelCode=r.HotelCode,
+                //    TotalAmount = r.TotalAmount,
+                //    CheckInTime = r.CheckInTime,
+                //    CheckOutTime = r.CheckOutTime,
+                //    Rates = =new,
+                //    Customer=r.Customer
+                //})
                 .FirstOrDefaultAsync();
         }
 
@@ -93,6 +111,46 @@ namespace TravelBridge.API.Repositories
                 payment.PaymentStatus = PaymentStatus.Success;
                 payment.DateFinalized = DateTime.Now;
                 payment.TransactionId = tid;
+                await db.SaveChangesAsync();
+                return true;
+            }
+            return false;
+        }
+
+        internal async Task<bool> UpdateReservationStatus(int resId, BookingStatus BookingStatus, BookingStatus? oldBookingStatus = null)
+        {
+            var reservation = await db.Reservations.FirstOrDefaultAsync(p => p.Id == resId) ?? throw new InvalidDataException("Reservation not found");
+            if (oldBookingStatus == null || reservation?.BookingStatus == oldBookingStatus)
+            {
+                reservation.BookingStatus = BookingStatus;
+                reservation.DateFinalized = DateTime.Now;
+                await db.SaveChangesAsync();
+                return true;
+            }
+            return false;
+        }
+
+        internal async Task<bool> UpdateReservationRateStatus(int rateId, BookingStatus BookingStatus, BookingStatus oldBookingStatus)
+        {
+            var rate = await db.ReservationRates.FirstOrDefaultAsync(p => p.Id == rateId);
+            if (rate?.BookingStatus == oldBookingStatus)
+            {
+                rate.BookingStatus = BookingStatus;
+                rate.DateFinalized = DateTime.Now;
+                await db.SaveChangesAsync();
+                return true;
+            }
+            return false;
+        }
+
+        internal async Task<bool> UpdateReservationRateStatusConfirmed(int rateId, BookingStatus BookingStatus, int ProviderResId)
+        {
+            var reservation = await db.ReservationRates.FirstOrDefaultAsync(p => p.Id == rateId);
+            if (reservation?.BookingStatus == BookingStatus.Running)
+            {
+                reservation.BookingStatus = BookingStatus;
+                reservation.DateFinalized = DateTime.Now;
+                reservation.ProviderResId = ProviderResId;
                 await db.SaveChangesAsync();
                 return true;
             }

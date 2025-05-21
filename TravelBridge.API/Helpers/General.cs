@@ -213,16 +213,18 @@ namespace TravelBridge.API.Helpers
 
                 var partySegment = parts.Last();
 
-                if (string.IsNullOrEmpty(partySegment) || !partySegment.All(char.IsDigit))
+                if (string.IsNullOrEmpty(partySegment))
                     throw new ArgumentException("Party segment must contain only digits.");
 
                 // First digit is adults
                 int adults = partySegment[0] - '0';
 
+                var segments = partySegment.Split('_');
                 // Remaining digits are children
-                var children = partySegment.Length > 1
-                    ? partySegment.Substring(1).Select(c => c - '0').ToArray()
-                    : Array.Empty<int>();
+                var children = segments.Length > 1
+                        ? segments.Skip(1).Select(int.Parse).ToArray()
+                        : Array.Empty<int>();
+
                 if (children?.Length > 0)
                     searchParty = $"[{{\"adults\":{adults},\"children\":[{string.Join(',', children)}]}}]";
                 else

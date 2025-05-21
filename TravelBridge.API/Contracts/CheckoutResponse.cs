@@ -31,9 +31,9 @@ namespace TravelBridge.API.Contracts
         [JsonPropertyName("errorMessage")]
         public string LabelErrorMessage { get; set; }
         public List<PaymentWH> Payments { get; set; }
-        public PartialPayment PartialPayment { get; private set; }
-
-
+        public PartialPayment? PartialPayment { get; private set; }
+        public string CheckInTime { get; set; }
+        public string CheckOutTime { get; set; }
 
         internal void MergePayments(List<General.SelectedRate> selectedrates)
         {
@@ -44,9 +44,9 @@ namespace TravelBridge.API.Contracts
 
             TotalPrice = Rooms.Sum(r => r.TotalPrice);
             Payments = Rooms.SelectMany(r => r.RateProperties.Payments).ToList();
-            PartialPayment = General.FillPartialPayment(Payments, checkinDate) ?? throw new InvalidOperationException("Payments calculation failure.");
+            PartialPayment = General.FillPartialPayment(Payments, checkinDate);
             Payments = [];
-            if ((PartialPayment.prepayAmount + PartialPayment.nextPayments.Sum(a => a.Amount)) != TotalPrice)
+            if (PartialPayment != null && (PartialPayment.prepayAmount + PartialPayment.nextPayments.Sum(a => a.Amount)) != TotalPrice)
             {
                 throw new InvalidOperationException("Payments calculation failure.");
             }
@@ -90,6 +90,8 @@ namespace TravelBridge.API.Contracts
 
         [JsonPropertyName("rateProperties")]
         public CheckoutRateProperties RateProperties { get; set; }
+        [JsonIgnore]
+        public decimal NetPrice { get; set; }
     }
 
     public class CheckoutRateProperties

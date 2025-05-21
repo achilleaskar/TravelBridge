@@ -3,6 +3,7 @@ using System;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
 using Microsoft.EntityFrameworkCore.Metadata;
+using Microsoft.EntityFrameworkCore.Migrations;
 using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 using TravelBridge.API.DataBase;
 
@@ -11,9 +12,11 @@ using TravelBridge.API.DataBase;
 namespace TravelBridge.API.Migrations
 {
     [DbContext(typeof(AppDbContext))]
-    partial class AppDbContextModelSnapshot : ModelSnapshot
+    [Migration("20250512184258_RoomName")]
+    partial class RoomName
     {
-        protected override void BuildModel(ModelBuilder modelBuilder)
+        /// <inheritdoc />
+        protected override void BuildTargetModel(ModelBuilder modelBuilder)
         {
 #pragma warning disable 612, 618
             modelBuilder
@@ -111,7 +114,7 @@ namespace TravelBridge.API.Migrations
                         .HasDefaultValueSql("CURRENT_TIMESTAMP");
 
                     b.Property<decimal>("prepayAmount")
-                        .HasColumnType("DECIMAL(10,2)");
+                        .HasColumnType("decimal(65,30)");
 
                     b.HasKey("Id");
 
@@ -274,14 +277,8 @@ namespace TravelBridge.API.Migrations
 
                     MySqlPropertyBuilderExtensions.UseMySqlIdentityColumn(b.Property<int>("Id"));
 
-                    b.Property<string>("BoardInfo")
-                        .HasColumnType("longtext");
-
                     b.Property<int>("BookingStatus")
                         .HasColumnType("int");
-
-                    b.Property<string>("CancelationInfo")
-                        .HasColumnType("longtext");
 
                     b.Property<DateTime?>("DateCreated")
                         .ValueGeneratedOnAdd()

@@ -90,14 +90,14 @@ namespace TravelBridge.API.Contracts
             var minMargin = Pricing.TotalPrice * 10 / 100;
             if (Pricing.Margin < minMargin || (Retail.TotalPrice - Pricing.TotalPrice) < minMargin || Retail == null || Retail.TotalPrice == 0)
             {
-                totalPrice = decimal.Floor(Pricing.TotalPrice + minMargin);
-                decimal.Round(ProfitPerc = totalPrice / Pricing.TotalPrice, 6);
+                totalPrice = decimal.Floor((Pricing.TotalPrice + minMargin) * 0.9m);
+                ProfitPerc = decimal.Round(totalPrice / Pricing.TotalPrice, 6);
                 return totalPrice;
             }
             else
             {
-                totalPrice = decimal.Floor(Retail.TotalPrice);
-                decimal.Round(ProfitPerc = totalPrice / Pricing.TotalPrice, 6);
+                totalPrice = decimal.Floor(Retail.TotalPrice * 0.9m);
+                ProfitPerc = decimal.Round(totalPrice / Pricing.TotalPrice, 6);
                 return totalPrice;
             }
         }
@@ -163,7 +163,7 @@ namespace TravelBridge.API.Contracts
             {
                 foreach (var party in partyList)
                 {
-                    if (party.RoomsCount > (
+                    if (party.RoomsCount <= (
                         Data.Rates
                         .Where(r => r.SearchParty?.Equals(party) == true)
                         .GroupBy(r => r.Type)
@@ -172,8 +172,9 @@ namespace TravelBridge.API.Contracts
                         )
                     )
                     {
-                        return false;
+                        continue;
                     }
+                    return false;
                 }
             }
             return true;

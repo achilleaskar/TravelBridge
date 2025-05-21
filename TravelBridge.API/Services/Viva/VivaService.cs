@@ -46,7 +46,7 @@ namespace TravelBridge.API.Services.Viva
             return orderCode;
         }
 
-        internal async Task<bool> ValidatePayment(string orderCode, string tid, decimal totalAmount)
+        internal async Task<bool> ValidatePayment(string orderCode, string tid, Models.DB.Reservation reservation)
         {
             var accessToken = await authService.GetAccessTokenAsync(); // Fetch the access token
 
@@ -68,7 +68,7 @@ namespace TravelBridge.API.Services.Viva
             var Status = document.RootElement.GetProperty("statusId").GetString();
 
             // Validate the transaction details
-            return OrderCode == orderCode && Amount == totalAmount && Status == "F";
+            return OrderCode == orderCode && (Amount == reservation.TotalAmount || Amount == (reservation.PartialPayment?.prepayAmount ?? -1)) && Status == "F";
         }
     }
 }

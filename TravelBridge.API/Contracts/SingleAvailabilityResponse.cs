@@ -87,6 +87,9 @@ namespace TravelBridge.API.Contracts
         public RateProperties RateProperties { get; set; }
         public string RateDescription { get; set; }
         public PartyItem SearchParty { get; internal set; }
+
+        [JsonIgnore]
+        public decimal NetPrice { get; set; }
     }
 
     public class RateProperties
