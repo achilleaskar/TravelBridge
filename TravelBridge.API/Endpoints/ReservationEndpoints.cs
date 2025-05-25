@@ -511,7 +511,7 @@ namespace TravelBridge.API.Endpoints
                     if (adults > 0)
                         response.Add($"{adults} ενήλικες");
                     if (childs > 0)
-                        response.Add($"{adults} παιδιά");
+                        response.Add($"{childs} παιδιά");
                     if (partyList!.Count == 1)
                         response.Add($"{partyList.Count} δωμάτιο");
                     else
