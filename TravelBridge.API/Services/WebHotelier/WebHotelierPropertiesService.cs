@@ -390,7 +390,7 @@ namespace TravelBridge.API.Services.WebHotelier
                         { "price", (rate.NetPrice).ToString(CultureInfo.InvariantCulture) },
                         { "rooms", rate.Quantity.ToString() },
                         { "adults", rate.SearchParty?.Adults.ToString()??throw new InvalidDataException($"adults are required in party. party:{rate.SearchParty?.ToString()??"empty party"}") },
-                        { "party",rate.SearchParty?.Party??"" },
+                        { "party", string.Join(",", Enumerable.Repeat(rate.SearchParty?.Party??"", rate.Quantity)).Replace("],[",",") },
                         { "firstName", reservation.Customer!.FirstName },
                         { "lastName", reservation.Customer!.LastName },
                         { "email", reservation.Customer!.Email },

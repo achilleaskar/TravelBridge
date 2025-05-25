@@ -41,21 +41,21 @@ namespace TravelBridge.API.Repositories
                             PaymentStatus= PaymentStatus.Pending
                         }
                     },
-                    PartialPayment = new PartialPaymentDB(res.PartialPayment,res.TotalPrice),
-                    RemainingAmount = res.TotalPrice - res.PartialPayment?.prepayAmount?? res.TotalPrice,
+                    PartialPayment = new PartialPaymentDB(res.PartialPayment, res.TotalPrice),
+                    RemainingAmount = res.TotalPrice - res.PartialPayment?.prepayAmount ?? res.TotalPrice,
                     Rates = res.Rooms.Select(r => new ReservationRate
                     {
                         HotelCode = pars.HotelId,
-                        Price = r.TotalPrice,
+                        Price = r.TotalPrice * r.SelectedQuantity,
                         Name = r.RoomName,
                         Provider = Provider.WebHotelier,
                         BookingStatus = BookingStatus.Pending,
                         RateId = r.RateId,
-                        NetPrice = r.NetPrice,
+                        NetPrice = r.NetPrice * r.SelectedQuantity,
                         Quantity = r.SelectedQuantity,
                         SearchParty = new(r.RateProperties.SearchParty),
                         CancelationInfo = r.RateProperties.CancellationName,
-                        BoardInfo= r.RateProperties.Board,
+                        BoardInfo = r.RateProperties.Board,
                     }).ToList()
                 };
 
