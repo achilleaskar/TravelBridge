@@ -28,6 +28,7 @@ namespace TravelBridge.API.Repositories
                     TotalAmount = res.TotalPrice,
                     TotalRooms = res.Rooms.Count,
                     Party = party,
+                    Coupon = pars.couponCode,
                     CheckInTime = res.CheckInTime,
                     CheckOutTime = res.CheckOutTime,
                     BookingStatus = BookingStatus.Pending,
@@ -82,7 +83,7 @@ namespace TravelBridge.API.Repositories
             return await db.Reservations
                 .Where(r => r.Payments.Any(p => p.OrderCode == orderCode))
                 .Include(r => r.Customer)
-                .Include(r => r.PartialPayment)
+                .Include(r => r.PartialPayment).ThenInclude(p => p.nextPayments)
                 .Include(r => r.Payments)
                 .Include(r => r.Rates).ThenInclude(p => p.SearchParty)
                 //.Include(r=>r.Rates)
@@ -167,6 +168,11 @@ namespace TravelBridge.API.Repositories
                 return true;
             }
             return false;
+        }
+
+        public async Task<Coupon?> RetrieveCoupon(string couponCode)
+        {
+            return await db.Coupons.FirstOrDefaultAsync(c => c.Code == couponCode && c.Expiration > DateTime.UtcNow);
         }
     }
 }

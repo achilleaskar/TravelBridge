@@ -34,6 +34,9 @@ namespace TravelBridge.API.Contracts
         public PartialPayment? PartialPayment { get; private set; }
         public string CheckInTime { get; set; }
         public string CheckOutTime { get; set; }
+        public string? CouponUsed { get; set; }
+        public string? CouponDiscount { get; set; }
+        public bool CouponValid { get; set; }
 
         internal void MergePayments(List<General.SelectedRate> selectedrates)
         {

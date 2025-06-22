@@ -83,6 +83,80 @@ namespace TravelBridge.API.Helpers
         {
             return source == null || !source.Any();
         }
+
+
+        public static List<string> hotelCodes = new List<string>
+        {
+            "GRECASTIR",
+            "LEONIKIRES",
+            "LAKOPETRA",
+            "ROYALPARK",
+            "CRETAPAL",
+            "GREGNATIA",
+            "EVAPALACE",
+            "GREFILOXE",
+            "GELINVRSPA",
+            "GRECRHOROY",
+            "DAPHNILBAY",
+            "KOSIMPERIA",
+            "OLYMPIAVIL",
+            "ILIAPALMS",
+            "GRECELGREC",
+            "OLTHALASSO",
+            "LARIMPER",
+            "CLUBMARINE",
+            "MELIPALACE",
+            "PALLASATH",
+            "PLAZAGRECO",
+            "OLIVA",
+            "AMIRANDES",
+            "CAPESOUNIO",
+            "CARAMEL",
+            "CORFUIMPER",
+            "MANDOLAROS",
+            "MYKONOSBLU",
+            "STARMYK",
+            "VOULSUITES"
+        };
+
+        public static List<Alternative> GetFinalPrice(this List<Alternative> source, decimal disc, string code, Models.CouponType couponType)
+        {
+            if (source.IsNullOrEmpty())
+            {
+                return [];
+            }
+            decimal PricePerc = 0.95m;
+            decimal extraDiscPer = 1m;
+            decimal extraDisc = 0m;
+            if (hotelCodes.Contains(code))
+            {
+                PricePerc = 1m;
+            }
+
+            if (disc != 0m)
+            {
+                if (couponType == Models.CouponType.flat)
+                    extraDisc = disc;
+                else if (couponType == Models.CouponType.percentage)
+                    extraDiscPer = 1 - disc;
+            }
+
+            foreach (var alt in source)
+            {
+                var minMargin = alt.NetPrice * 10 / 100;
+                if (alt.MinPrice - alt.NetPrice < minMargin || (alt.MinPrice - alt.NetPrice) < minMargin || alt.MinPrice == 0)
+                {
+                    alt.MinPrice = decimal.Floor(((alt.NetPrice + minMargin) * PricePerc * extraDiscPer) - extraDisc);
+                }
+                else
+                {
+                    alt.MinPrice = decimal.Floor((alt.NetPrice * PricePerc * extraDiscPer) - extraDisc);
+                }
+            }
+
+            return source;
+        }
+
         public static PartialPayment? FillPartialPayment(List<PaymentWH>? payments, DateTime checkIn)
         {
             if (payments.IsNullOrEmpty()
@@ -204,6 +278,9 @@ namespace TravelBridge.API.Helpers
             public string roomType { get; set; }
             public string searchParty { get; set; }
 
+            public int adults { get; set; }
+            public int children { get; set; }
+
             internal void FillPartyFromId()
             {
                 var parts = rateId.Split('-');
@@ -217,16 +294,17 @@ namespace TravelBridge.API.Helpers
                     throw new ArgumentException("Party segment must contain only digits.");
 
                 // First digit is adults
-                int adults = partySegment[0] - '0';
+                adults = partySegment[0] - '0';
 
                 var segments = partySegment.Split('_');
                 // Remaining digits are children
-                var children = segments.Length > 1
+                var childrenAges = segments.Length > 1
                         ? segments.Skip(1).Select(int.Parse).ToArray()
                         : Array.Empty<int>();
+                children = childrenAges?.Length ?? 0;
 
-                if (children?.Length > 0)
-                    searchParty = $"[{{\"adults\":{adults},\"children\":[{string.Join(',', children)}]}}]";
+                if (childrenAges?.Length > 0)
+                    searchParty = $"[{{\"adults\":{adults},\"children\":[{string.Join(',', childrenAges)}]}}]";
                 else
                     searchParty = $"[{{\"adults\":{adults}}}]";
             }

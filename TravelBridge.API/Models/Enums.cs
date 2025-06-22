@@ -12,6 +12,19 @@ namespace TravelBridge.API.Models
     }
 
 
+    public enum CouponType
+    {
+        [Description("Percentage")]
+        none = 0,
+
+        [Description("Flat")]
+        flat = 1,
+
+        [Description("Percentage")]
+        percentage = 2
+    }
+
+
     public enum Language
     {
         [Description("Greek")]
@@ -36,7 +49,7 @@ namespace TravelBridge.API.Models
         [Description("Error")]
         Error = 5
     }
-   
+
     public enum Provider
     {
         [Description("Web Hotelier")]
@@ -59,7 +72,7 @@ namespace TravelBridge.API.Models
         [Description("Failed")]
         Failed = 3
     }
-     
+
     public enum FilterType
     {
         [Description("Range")]

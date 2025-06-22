@@ -8,6 +8,8 @@ namespace TravelBridge.API.Contracts
     public class SingleAvailabilityResponse : BaseWebHotelierResponse
     {
         public SingleHotelAvailabilityInfo Data { get; set; }
+        public bool CouponValid { get; set; }
+        public string? CouponDiscount { get; set; }
 
         internal bool CoversRequest(List<General.SelectedRate> partyList)
         {
@@ -51,6 +53,7 @@ namespace TravelBridge.API.Contracts
         public Location Location { get; set; }
 
         public List<SingleHotelRoom> Rooms { get; set; }
+        public List<Alternative> Alternatives { get; set; }
     }
 
     public class SingleHotelRoom

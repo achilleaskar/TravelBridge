@@ -1,5 +1,8 @@
 using System.ComponentModel.DataAnnotations;
 using System.ComponentModel.DataAnnotations.Schema;
+using System.Text;
+using TravelBridge.API.Helpers;
+using static TravelBridge.API.Helpers.General;
 
 namespace TravelBridge.API.Models.DB
 {
@@ -33,6 +36,34 @@ namespace TravelBridge.API.Models.DB
         public string? Name { get; set; }
         public string? CancelationInfo { get; set; }
         public string? BoardInfo { get; set; }
+
+        internal string GetPartyInfo()
+        {
+            int adults = SearchParty?.Adults ?? 0;
+            int children;
+            var childrenStr = SearchParty?.Children;
+            if (string.IsNullOrWhiteSpace(childrenStr))
+                children = 0;
+            else
+                children = childrenStr.Split(',', StringSplitOptions.RemoveEmptyEntries).Length;
+
+
+            var sb = new StringBuilder();
+
+            if (adults > 0)
+            {
+                sb.Append(adults == 1 ? "1 ενήλικας" : $"{adults} ενήλικες");
+            }
+
+            if (children > 0)
+            {
+                if (sb.Length > 0)
+                    sb.Append(", ");
+                sb.Append(children == 1 ? "1 παιδί" : $"{children} παιδιά");
+            }
+
+            return sb.ToString();
+        }
 
         #endregion Relations
     }

@@ -233,7 +233,7 @@ namespace TravelBridge.API.Endpoints
             return res;
         }
 
-        private void SetBoardText(PluginSearchResponse res)
+        private static void SetBoardText(PluginSearchResponse res)
         {
             foreach (var hotel in res.Results)
             {
@@ -241,7 +241,7 @@ namespace TravelBridge.API.Endpoints
             }
         }
 
-        private void SetSelectedFilters(PluginSearchResponse res, SubmitSearchParameters pars)
+        private static void SetSelectedFilters(PluginSearchResponse res, SubmitSearchParameters pars)
         {
             foreach (var filter in res.Filters)
             {
@@ -262,7 +262,7 @@ namespace TravelBridge.API.Endpoints
             }
         }
 
-        private void ApplyPriceFilters(PluginSearchResponse res, SubmitSearchParameters pars)
+        private static void ApplyPriceFilters(PluginSearchResponse res, SubmitSearchParameters pars)
         {
             var allHotesls = res.Results.AsEnumerable();
 
@@ -275,7 +275,7 @@ namespace TravelBridge.API.Endpoints
             res.Results = allHotesls.ToList();
         }
 
-        private void ApplyFilters(PluginSearchResponse res, SubmitSearchParameters pars)
+        private static void ApplyFilters(PluginSearchResponse res, SubmitSearchParameters pars)
         {
             var allHotesls = res.Results.AsEnumerable();
 
@@ -310,7 +310,7 @@ namespace TravelBridge.API.Endpoints
             res.Results = allHotesls?.ToList() ?? new List<WebHotel>();
         }
 
-        private void CalculateAppliedFilters(PluginSearchResponse res)
+        private static void CalculateAppliedFilters(PluginSearchResponse res)
         {
             foreach (var filter in res.Filters.Where(f => f.Type == FilterType.values))
             {
@@ -346,7 +346,7 @@ namespace TravelBridge.API.Endpoints
             res.Filters.Add(GetBoards(res));
         }
 
-        private void FillPriceFilter(PluginSearchResponse res, int nights)
+        private static void FillPriceFilter(PluginSearchResponse res, int nights)
         {
             res.Filters ??= new();
             if (nights > 0 && res.Results?.Count() > 0)
@@ -393,7 +393,7 @@ namespace TravelBridge.API.Endpoints
             return boards;
         }
 
-        private Filter GetTypes(PluginSearchResponse res)
+        private static Filter GetTypes(PluginSearchResponse res)
         {
             foreach (var item in res.Results ?? new List<WebHotel>())
             {
@@ -412,7 +412,7 @@ namespace TravelBridge.API.Endpoints
                 false);
         }
 
-        private Filter GetRatings(PluginSearchResponse res)
+        private static Filter GetRatings(PluginSearchResponse res)
         {
             var ratingFilter = new Filter("Αστέρια", "rating", new(), false);
 
@@ -515,7 +515,7 @@ namespace TravelBridge.API.Endpoints
             return party;
         }
 
-        private BBox TryGetBBox(string locationId)
+        private static BBox TryGetBBox(string locationId)
         {
             // Validate the input format
             if (string.IsNullOrWhiteSpace(locationId))

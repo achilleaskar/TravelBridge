@@ -7,6 +7,7 @@ namespace TravelBridge.API.Models.ExternalModels
         public VivaCustomer Customer { get; set; }
         public string SourceCode { get; set; }
         public string MerchantTrns { get; set; }
+        public bool DisableCash { get; set; } = true; // Disable cash payment option
         public int PaymentTimeout { get; } = 300;
         public string DynamicDescriptor { get;} = "My Diakopes";
         public List<string> Tags { get; internal  set; }

@@ -1,3 +1,4 @@
+using System.Collections.Generic;
 using System.Globalization;
 using System.IO;
 using System.Net;
@@ -6,12 +7,16 @@ using System.Net.Mail;
 using System.Reflection;
 using System.Text.Json;
 using Microsoft.AspNetCore.Mvc.ApplicationModels;
+using Microsoft.EntityFrameworkCore;
 using TravelBridge.API.Contracts;
+using TravelBridge.API.DataBase;
 using TravelBridge.API.Helpers.Extensions;
 using TravelBridge.API.Models;
 using TravelBridge.API.Models.DB;
 using TravelBridge.API.Models.Plugin.AutoComplete;
 using TravelBridge.API.Models.WebHotelier;
+using TravelBridge.API.Repositories;
+using static System.Runtime.InteropServices.JavaScript.JSType;
 using static TravelBridge.API.Helpers.General;
 
 namespace TravelBridge.API.Services.WebHotelier
@@ -145,7 +150,7 @@ namespace TravelBridge.API.Services.WebHotelier
             }
         }
 
-        internal async Task<SingleAvailabilityResponse> GetHotelAvailabilityAsync(SingleAvailabilityRequest req, DateTime checkin, List<SelectedRate>? rates = null)
+        internal async Task<SingleAvailabilityResponse> GetHotelAvailabilityAsync(SingleAvailabilityRequest req, DateTime checkin, ReservationsRepository? reservationsRepository, List<SelectedRate>? rates = null, string? couponCode = null)
         {
             try
             {
@@ -206,8 +211,40 @@ namespace TravelBridge.API.Services.WebHotelier
                         return new SingleAvailabilityResponse { ErrorCode = "Error", ErrorMessage = "Not enough rooms", Data = new SingleHotelAvailabilityInfo { Rooms = [] } };
                     }
                 }
+                else if (finalRes?.Data?.Rates.IsNullOrEmpty() != false)
+                {
+                    finalRes.Alternatives = await GetAlternatives(partyList, req);
+                }
 
-                return finalRes?.MapToResponse(checkin)
+                decimal disc = 0;
+                CouponType couponType = CouponType.none;
+                if (reservationsRepository != null && !string.IsNullOrWhiteSpace(couponCode))
+                {
+                    var coupon = await reservationsRepository.RetrieveCoupon(couponCode.ToUpper());
+                    if (coupon != null && coupon.CouponType == CouponType.percentage)
+                    {
+                        disc = coupon.Percentage / 100m;
+                        couponType = CouponType.percentage;
+                    }
+                    else if (coupon != null && coupon.CouponType == CouponType.flat)
+                    {
+                        disc = coupon.Amount;
+                        couponType = CouponType.flat;
+                    }
+                }
+
+                if (finalRes != null && finalRes.Data == null)
+                {
+                    finalRes.Data = new HotelInfo
+                    {
+                        Code = req.PropertyId,
+                        Provider = Provider.WebHotelier,
+                        Rates = []
+                    };
+                }
+
+
+                return finalRes?.MapToResponse(checkin, disc, couponType)
                     ?? new SingleAvailabilityResponse { ErrorCode = "Empty", ErrorMessage = "No records found", Data = new SingleHotelAvailabilityInfo { Rooms = [] } };
             }
             catch (HttpRequestException ex)
@@ -216,7 +253,142 @@ namespace TravelBridge.API.Services.WebHotelier
             }
         }
 
-        private List<PartyItem> GetPartyList(List<SelectedRate> rates)
+        private async Task<List<Alternative>> GetAlternatives(List<PartyItem>? partyList, SingleAvailabilityRequest req)
+        {
+            var from = DateTime.Parse(req.CheckIn).AddDays(-14);
+            var to = DateTime.Parse(req.CheckOut).AddDays(14);
+
+            if (from < DateTime.Today.AddDays(1))
+            {
+                from = DateTime.Today.AddDays(1);
+            }
+
+            Dictionary<PartyItem, Task<HttpResponseMessage>> tasks = new();
+            foreach (var partyItem in partyList ?? new())
+            {
+                // Build the query string from the availabilityRequest object
+                tasks.Add(partyItem, _httpClient.GetAsync($"availability/{req.PropertyId}/flexible-calendar?party={partyItem.party}" +
+                       $"&startDate={from:yyyy-MM-dd}" +
+                       $"&endDate={to:yyyy-MM-dd}"));
+            }
+
+            // Send GET request
+            await Task.WhenAll(tasks.Values);
+            Dictionary<PartyItem, List<Alternative>> alterDatesDict = new();
+            SingleAvailabilityData? finalRes = null;
+            foreach (var task in tasks.OrderBy(p => p.Key.adults))
+            {
+                var result = task.Value.Result;
+                result.EnsureSuccessStatusCode();
+                var jsonString = await result.Content.ReadAsStringAsync();
+                var res = JsonSerializer.Deserialize<AlternativeDaysData>(jsonString) ?? throw new InvalidOperationException("No Results");
+                if (res == null)
+                {
+                    return [];
+                }
+                var alterDates = res.Data?.days?.Where(d => d.status == "AVL" || d.status == "MIN") ?? [];
+                alterDatesDict.Add(task.Key, GetAlterDates(alterDates, req.CheckIn, req.CheckOut));
+            }
+
+            return KeepCommon(alterDatesDict);
+        }
+
+        private static List<Alternative> KeepCommon(Dictionary<PartyItem, List<Alternative>> alterDatesDict)
+        {
+            var allCheckInOutPairs = alterDatesDict.Values
+             .Select(list => list
+                 .Select(a => (a.CheckIn, a.Checkout))
+                 .Distinct()
+                 .ToHashSet())
+             .ToList();
+
+            // Find common (CheckIn, CheckOut) pairs in all lists
+            var commonPairs = allCheckInOutPairs
+                .Skip(1)
+                .Aggregate(new HashSet<(DateTime, DateTime)>(allCheckInOutPairs.First()),
+                           (h, s) => { h.IntersectWith(s); return h; });
+
+            // Filter and flatten all matching alternatives
+            var matchingAlternatives = alterDatesDict.Values
+                .SelectMany(list => list)
+                .Where(a => commonPairs.Contains((a.CheckIn, a.Checkout)));
+
+            // Group by date and sum
+            return matchingAlternatives
+                .GroupBy(a => new { a.CheckIn, a.Checkout })
+                .Select(g => new Alternative
+                {
+                    CheckIn = g.Key.CheckIn,
+                    Checkout = g.Key.Checkout,
+                    MinPrice = g.Sum(x => x.MinPrice),
+                    NetPrice = g.Sum(x => x.NetPrice),
+                    Nights = (g.Key.Checkout - g.Key.CheckIn).Days
+                })
+                .OrderBy(a => a.CheckIn)
+                .ToList();
+        }
+
+        private static List<Alternative> GetAlterDates(IEnumerable<AlternativeDayInfo> alterDates, string checkIn, string checkOut)
+        {
+            try
+            {
+                List<Alternative> results = new List<Alternative>();
+                foreach (var dat in alterDates)
+                {
+                    dat.dateOnly = DateTime.ParseExact(dat.date, "yyyy-MM-dd", CultureInfo.InvariantCulture);
+                }
+
+                int requestedNights = (DateTime.Parse(checkOut) - DateTime.Parse(checkIn)).Days;
+                var maxDay = alterDates.Max(a => a.dateOnly).AddDays(1);
+                for (int i = 0; i < alterDates.Count(); i++)
+                {
+                    var curDate = alterDates.ElementAt(i);
+                    var duration = requestedNights;
+                    if (curDate.min_stay > requestedNights)
+                    {
+                        duration = curDate.min_stay;
+                    }
+                    Alternative alt = new Alternative()
+                    {
+                        CheckIn = curDate.dateOnly,
+                        Checkout = curDate.dateOnly.AddDays(duration),
+                        Nights = duration
+                    };
+                    if (curDate.dateOnly.AddDays(duration) > maxDay)
+                    {
+                        continue; // skip if the duration exceeds the max day available
+                    }
+
+                    var tempDate = curDate.dateOnly;
+                    var tempItem = curDate;
+                    bool isOk = true;
+                    for (int j = 1; j <= duration; j++)
+                    {
+                        if (tempItem.min_stay > duration || tempItem.dateOnly != tempDate)
+                        {
+                            isOk = false;
+                            break;
+                        }
+                        alt.MinPrice += tempItem.retail;
+                        alt.NetPrice += tempItem.price;
+                        tempItem = (i + j) >= alterDates.Count() ? null : alterDates.ElementAt(i + j);
+                        tempDate = tempDate.AddDays(1);
+                    }
+                    if (isOk)
+                    {
+                        results.Add(alt);
+                    }
+
+                }
+                return results;
+            }
+            catch (Exception ex)
+            {
+                return [];
+            }
+        }
+
+        private static List<PartyItem> GetPartyList(List<SelectedRate> rates)
         {
             var partyList = new List<PartyItem>();
 
@@ -230,7 +402,7 @@ namespace TravelBridge.API.Services.WebHotelier
             return partyList;
         }
 
-        private PluginSearchResponse MergeResponses(Dictionary<PartyItem, MultiAvailabilityResponse> respones)
+        private static PluginSearchResponse MergeResponses(Dictionary<PartyItem, MultiAvailabilityResponse> respones)
         {
             try
             {
@@ -525,10 +697,11 @@ namespace TravelBridge.API.Services.WebHotelier
                 using StreamReader reader = new(stream);
                 htmlContent = reader.ReadToEnd();
             }
-
+            var paid = reservation.Payments.Where(p => p.PaymentStatus == PaymentStatus.Success).Sum(a => a.Amount);
             htmlContent = htmlContent
                 .Replace("[Client Full Name]", $"{reservation.Customer.LastName} {reservation.Customer.FirstName}")
                 .Replace("[Hotel Name]", reservation.HotelName)
+                .Replace("[ReservationCode]", string.Join(", ", reservation.Rates.Select(r => r.ProviderResId)))
                 .Replace("[CheckInString]", reservation.CheckIn.ToString("dd/MM/yyyy") + $" από τις {reservation.CheckInTime} και μετά")
                 .Replace("[CheckoutString]", reservation.CheckOut.ToString("dd/MM/yyyy") + $" έως τις {reservation.CheckOutTime}")
                 .Replace("[NightsString]", $"{(reservation.CheckOut.DayNumber - reservation.CheckIn.DayNumber).ToString()} νύχτες")
@@ -537,12 +710,14 @@ namespace TravelBridge.API.Services.WebHotelier
                 .Replace("[Client Name]", reservation.Customer.FirstName)
                 .Replace("[Client Email]", reservation.Customer.Email)
                 .Replace("[Client Phone]", reservation.Customer.Tel)
-                .Replace("[CustomerNotes]", reservation.Customer.Notes);
+                .Replace("[CustomerNotes]", reservation.Customer.Notes)
+                .Replace("[TotalAmount]", reservation.TotalAmount.ToString("F2", CultureInfo.InvariantCulture) + " €")
+                .Replace("[PaidAmount]", paid.ToString("F2", CultureInfo.InvariantCulture) + " €")
+                .Replace("[RemainingAmount]", (reservation.TotalAmount - paid).ToString("F2", CultureInfo.InvariantCulture) + " €");
 
             string RoomDetails = """
-                        <div class="section">
-                        <p>
-                          <span class="label">Δωμάτια/ο κράτησης:</span>
+                       <div>
+                       <p>
                 		  <span class="value">[CountAndRoomType]</span>
                         </p>
                         <p>
@@ -550,24 +725,39 @@ namespace TravelBridge.API.Services.WebHotelier
                           <span class="value">[BoardType]</span>
                         </p>
                         <p>
-                          <span class="label">Πολιτική ακύρωσης:</span
-                          ><span class="value">[CancelationPolicy]</span>
+                          <span class="label">Πολιτική ακύρωσης:</span>
+                          <span class="value">[CancelationPolicy]</span>
                         </p>
                         <p>
-                          <span class="label">Κόστος δωματίων:</span
-                          ><span class="value">[RoomCost]</span>
+                          <span class="label">Κόστος δωματίων:</span>
+                          <span class="value">[RoomCost]</span>
+                        </p>
+                        <p>
+                          <span class="label">Σύνθεση:</span>
+                          <span class="value">[PartyDesc]</span>
                         </p>
                         <p></p>
+                        <br/>
                       </div>
                 """;
 
             string FinalRoomDetails = "";
+
             foreach (var rate in reservation.Rates)
             {
+                var cancelationInfo = rate.CancelationInfo ?? "Δεν υπάρχει πολιτική ακύρωσης";
+                if (reservation.RemainingAmount > 0 && reservation.PartialPayment.nextPayments.Count > 0)
+                {
+                    cancelationInfo +=
+                        $"έως {(reservation.PartialPayment.nextPayments.OrderBy(a => a.DueDate)
+                        .First().DueDate?.ToString("dd/MM/yyyy HH:mm") ?? "error")}";
+                }
+
                 FinalRoomDetails += RoomDetails
                 .Replace("[CountAndRoomType]", $"{rate.Quantity} x {rate.Name}")
-                .Replace("[CancelationPolicy]", rate.CancelationInfo)
+                .Replace("[CancelationPolicy]", cancelationInfo)
                 .Replace("[BoardType]", rate.BoardInfo)
+                .Replace("[PartyDesc]", rate.GetPartyInfo())
                 .Replace("[RoomCost]", rate.Price.ToString("F2", CultureInfo.InvariantCulture) + " €");
             }
 
@@ -591,9 +781,9 @@ namespace TravelBridge.API.Services.WebHotelier
                 IsBodyHtml = true,
             };
 
-            mailMessage.To.Add("achilleaskaragiannis@outlook.com");
+            mailMessage.Bcc.Add("achilleaskaragiannis@outlook.com");
+            mailMessage.CC.Add("bookings@my-diakopes.gr");
             mailMessage.To.Add(reservation.Customer.Email);
-            mailMessage.To.Add("bookings@my-diakopes.gr");
 
             await smtpClient.SendMailAsync(mailMessage);
         }
