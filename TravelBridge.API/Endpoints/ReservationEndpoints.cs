@@ -28,9 +28,10 @@ namespace TravelBridge.API.Endpoints
         (
             [FromQuery] string checkin,
             [FromQuery] string checkOut,
-            [FromQuery] int? adults,
-            [FromQuery] string? children,
-            [FromQuery] string? party,
+            [FromQuery] string? couponCode,
+            //[FromQuery] int? adults,
+            //[FromQuery] string? children,
+            //[FromQuery] string? party,
             [FromQuery] string? hotelId,
             [FromQuery] string? selectedRates
         );
@@ -41,6 +42,7 @@ namespace TravelBridge.API.Endpoints
                string CheckOut,
                int? Rooms,
                string? Children,
+               string? couponCode,
                int? Adults,
                string? Party,
                string? SelectedRates,
@@ -58,14 +60,38 @@ namespace TravelBridge.API.Endpoints
             string? Email,
             string? Phone,
             string? Requests
-        )
-        {
-        }
+        );
 
         public record PaymentInfo
         (
             string? Tid,
             string OrderCode
+        );
+
+
+        public record ReservationDetails(
+            string hotelId,
+            string checkIn,
+            string checkOut,
+            string children,
+            string adults,
+            string party,
+            string selectedRates,
+            decimal totalPrice
+        );
+
+        public record FormData(
+            string firstName,
+            string lastName,
+            string email,
+            string phone,
+            string requests
+        );
+
+        public record ReservationRequest(
+            string? couponCode,
+            ReservationDetails reservationDetails,
+            FormData formData
         );
 
         public void MapEndpoints(IEndpointRouteBuilder app)
@@ -105,6 +131,12 @@ namespace TravelBridge.API.Endpoints
             async (string bookingNumber, ReservationsRepository repo) =>
           await CancelBooking(bookingNumber, repo))
               .WithName("CancelBooking");
+
+            apiGroup.MapPost("/applyCoupon",
+          [EndpointSummary("Applies Coupon")]
+            async (ReservationRequest reservationRequest, ReservationsRepository repo) =>
+          await ApplyCoupon(reservationRequest, repo))
+              .WithName("ApplyCoupon");
         }
 
         private async Task CancelBooking(string OrderCode, ReservationsRepository repo)
@@ -132,8 +164,7 @@ namespace TravelBridge.API.Endpoints
             var res = await GetCheckoutInfo(new SubmitSearchParameters(
                 reservation.CheckIn.ToString("dd/MM/yyyy"),
                 reservation.CheckOut.ToString("dd/MM/yyyy"),
-                null, null,
-                reservation.Party,
+                "",
                 reservation.HotelCode,
                 JsonSerializer.Serialize(reservation.Rates.Select(r => new SelectedRate { rateId = r.RateId, count = r.Quantity, searchParty = r.SearchParty?.Party ?? "" }))
             ));
@@ -247,7 +278,7 @@ namespace TravelBridge.API.Endpoints
             };
 
             var hotelTask = webHotelierPropertiesService.GetHotelInfo(hotelInfo[1]);
-            var availTask = webHotelierPropertiesService.GetHotelAvailabilityAsync(availReq, parsedCheckin, SelectedRates);
+            var availTask = webHotelierPropertiesService.GetHotelAvailabilityAsync(availReq, parsedCheckin, repo, SelectedRates, pars.couponCode);
             Task.WaitAll(availTask, hotelTask);
 
             SingleAvailabilityResponse? availRes = await availTask;
@@ -268,6 +299,9 @@ namespace TravelBridge.API.Endpoints
                     Name = hotelRes.Data.Name
                 },
                 CheckIn = pars.CheckIn,
+                CouponUsed = pars.couponCode,
+                CouponValid = availRes.CouponValid,
+                CouponDiscount = availRes.CouponDiscount,
                 CheckOut = pars.CheckOut,
                 CheckInTime = hotelRes.Data.Operation.CheckinTime,
                 CheckOutTime = hotelRes.Data.Operation.CheckoutTime,
@@ -352,50 +386,35 @@ namespace TravelBridge.API.Endpoints
             return response;
         }
 
-        private async Task<CheckoutResponse> GetCheckoutInfo(SubmitSearchParameters pars)
+        private async Task<CheckoutResponse> ApplyCoupon(ReservationRequest reservationRequest, ReservationsRepository repo)
         {
             #region Param Validation
 
-            if (!DateTime.TryParseExact(pars.checkin, "dd/MM/yyyy", CultureInfo.InvariantCulture, DateTimeStyles.None, out var parsedCheckin))
+            if (!DateTime.TryParseExact(reservationRequest.reservationDetails.checkIn, "dd/MM/yyyy", CultureInfo.InvariantCulture, DateTimeStyles.None, out var parsedCheckin))
             {
                 throw new InvalidCastException("Invalid checkin date format. Use dd/MM/yyyy.");
             }
 
-            if (!DateTime.TryParseExact(pars.checkOut, "dd/MM/yyyy", CultureInfo.InvariantCulture, DateTimeStyles.None, out var parsedCheckOut))
+            if (!DateTime.TryParseExact(reservationRequest.reservationDetails.checkOut, "dd/MM/yyyy", CultureInfo.InvariantCulture, DateTimeStyles.None, out var parsedCheckOut))
             {
                 throw new InvalidCastException("Invalid checkout date format. Use dd/MM/yyyy.");
             }
 
             List<SelectedRate>? Selectedrates;
-            if (string.IsNullOrWhiteSpace(pars.selectedRates))
+            if (string.IsNullOrWhiteSpace(reservationRequest.reservationDetails.selectedRates))
             {
                 throw new InvalidCastException("Invalid selected rates");
             }
             else
             {
-                Selectedrates = RatesToList(pars.selectedRates);
+                Selectedrates = RatesToList(reservationRequest.reservationDetails.selectedRates);
                 if (Selectedrates == null)
                 {
                     throw new InvalidCastException("Invalid selected rates");
                 }
             }
 
-            string party;
-            if (string.IsNullOrWhiteSpace(pars.party))
-            {
-                if (pars.adults == null || pars.adults < 1)
-                {
-                    throw new ArgumentException("There must be at least one adult in the room.");
-                }
-
-                party = CreateParty(pars.adults.Value, pars.children);
-            }
-            else
-            {
-                party = BuildMultiRoomJson(pars.party);
-            }
-
-            var hotelInfo = pars.hotelId?.Split('-');
+            var hotelInfo = reservationRequest.reservationDetails.hotelId?.Split('-');
             if (hotelInfo?.Length != 2)
             {
                 throw new ArgumentException("Invalid hotelId format. Use bbox-lat-lon.");
@@ -407,12 +426,11 @@ namespace TravelBridge.API.Endpoints
             {
                 CheckIn = parsedCheckin.ToString("yyyy-MM-dd"),
                 CheckOut = parsedCheckOut.ToString("yyyy-MM-dd"),
-                Party = party,
                 PropertyId = hotelInfo[1]
             };
 
             var hotelTask = webHotelierPropertiesService.GetHotelInfo(hotelInfo[1]);
-            var availTask = webHotelierPropertiesService.GetHotelAvailabilityAsync(availReq, parsedCheckin, Selectedrates);
+            var availTask = webHotelierPropertiesService.GetHotelAvailabilityAsync(availReq, parsedCheckin, repo, Selectedrates, reservationRequest.couponCode);
             Task.WaitAll(availTask, hotelTask);
 
             SingleAvailabilityResponse? availRes = await availTask;
@@ -430,6 +448,9 @@ namespace TravelBridge.API.Endpoints
             var res = new CheckoutResponse
             {
                 ErrorCode = hotelRes.ErrorCode,
+                CouponUsed = reservationRequest.couponCode,
+                CouponDiscount = availRes.CouponDiscount,
+                CouponValid = availRes.CouponValid,
                 LabelErrorMessage = hotelRes.ErrorMsg,
                 HotelData = new CheckoutHotelInfo
                 {
@@ -439,11 +460,11 @@ namespace TravelBridge.API.Endpoints
                     Operation = hotelRes.Data.Operation,
                     Rating = hotelRes.Data.Rating
                 },
-                CheckIn = pars.checkin,
-                CheckOut = pars.checkOut,
+                CheckIn = reservationRequest.reservationDetails.checkIn,
+                CheckOut = reservationRequest.reservationDetails.checkOut,
                 Nights = nights,
                 Rooms = GetDistinctRoomsPerRate(availRes.Data?.Rooms),//TODO: ti kanei afto?
-                SelectedPeople = GetPartyInfo(party)
+                SelectedPeople = GetPartyInfo(Selectedrates)
             };
 
             if (!availRes.CoversRequest(Selectedrates))
@@ -497,25 +518,172 @@ namespace TravelBridge.API.Endpoints
             return res;
         }
 
-        private static string GetPartyInfo(string party)
+        private async Task<CheckoutResponse> GetCheckoutInfo(SubmitSearchParameters pars)
+        {
+            #region Param Validation
+
+            if (!DateTime.TryParseExact(pars.checkin, "dd/MM/yyyy", CultureInfo.InvariantCulture, DateTimeStyles.None, out var parsedCheckin))
+            {
+                throw new InvalidCastException("Invalid checkin date format. Use dd/MM/yyyy.");
+            }
+
+            if (!DateTime.TryParseExact(pars.checkOut, "dd/MM/yyyy", CultureInfo.InvariantCulture, DateTimeStyles.None, out var parsedCheckOut))
+            {
+                throw new InvalidCastException("Invalid checkout date format. Use dd/MM/yyyy.");
+            }
+
+            List<SelectedRate>? Selectedrates;
+            if (string.IsNullOrWhiteSpace(pars.selectedRates))
+            {
+                throw new InvalidCastException("Invalid selected rates");
+            }
+            else
+            {
+                Selectedrates = RatesToList(pars.selectedRates);
+                if (Selectedrates == null)
+                {
+                    throw new InvalidCastException("Invalid selected rates");
+                }
+            }
+
+            //string party;
+            //if (string.IsNullOrWhiteSpace(pars.party))
+            //{
+            //    if (pars.adults == null || pars.adults < 1)
+            //    {
+            //        throw new ArgumentException("There must be at least one adult in the room.");
+            //    }
+
+            //    party = CreateParty(pars.adults.Value, pars.children);
+            //}
+            //else
+            //{
+            //    party = BuildMultiRoomJson(pars.party);
+            //}
+
+            var hotelInfo = pars.hotelId?.Split('-');
+            if (hotelInfo?.Length != 2)
+            {
+                throw new ArgumentException("Invalid hotelId format. Use bbox-lat-lon.");
+            }
+
+            #endregion Param Validation
+
+            SingleAvailabilityRequest availReq = new()
+            {
+                CheckIn = parsedCheckin.ToString("yyyy-MM-dd"),
+                CheckOut = parsedCheckOut.ToString("yyyy-MM-dd"),
+                //Party = party,
+                PropertyId = hotelInfo[1]
+            };
+
+            var hotelTask = webHotelierPropertiesService.GetHotelInfo(hotelInfo[1]);
+            var availTask = webHotelierPropertiesService.GetHotelAvailabilityAsync(availReq, parsedCheckin, null, Selectedrates);
+            Task.WaitAll(availTask, hotelTask);
+
+            SingleAvailabilityResponse? availRes = await availTask;
+            HotelInfoResponse? hotelRes = await hotelTask;
+
+            if (availRes.Data != null)
+            {
+                availRes.Data.Provider = Provider.WebHotelier;
+            }
+
+            hotelRes.Data.Provider = Provider.WebHotelier;
+
+            int nights = (parsedCheckOut - parsedCheckin).Days;
+
+            var res = new CheckoutResponse
+            {
+                ErrorCode = hotelRes.ErrorCode,
+                LabelErrorMessage = hotelRes.ErrorMsg,
+                CouponUsed = pars.couponCode,
+                CouponValid = availRes.CouponValid,
+                CouponDiscount = availRes.CouponDiscount,
+                HotelData = new CheckoutHotelInfo
+                {
+                    Id = hotelRes.Data.Id,
+                    Name = hotelRes.Data.Name,
+                    Image = hotelRes.Data.LargePhotos.FirstOrDefault() ?? "",
+                    Operation = hotelRes.Data.Operation,
+                    Rating = hotelRes.Data.Rating
+                },
+                CheckIn = pars.checkin,
+                CheckOut = pars.checkOut,
+                Nights = nights,
+                Rooms = GetDistinctRoomsPerRate(availRes.Data?.Rooms),//TODO: ti kanei afto?
+                SelectedPeople = GetPartyInfo(Selectedrates)
+            };
+
+            if (!availRes.CoversRequest(Selectedrates))
+            {
+                res.ErrorCode = "Error";
+                res.ErrorMessage = "Not enough rooms";
+                res.Rooms = new List<CheckoutRoomInfo>();
+                return res;
+            }
+
+            //TODO: recheck this validation
+            //i might need to add something with sums. cause when i have the same room for dif party and remaing is 1 i need error
+            foreach (var selectedRate in Selectedrates)
+            {
+                bool found = false;
+                foreach (var room in availRes.Data?.Rooms ?? [])
+                {
+                    foreach (var rate in room.Rates)
+                    {
+                        if (selectedRate.roomId != null && selectedRate.rateId == null)
+                        {
+                            selectedRate.rateId = selectedRate.roomId;
+                        }
+
+                        if (rate.Id.Equals(selectedRate.rateId) && rate.SearchParty.party?.Equals(selectedRate.searchParty) == true && rate.RemainingRooms >= selectedRate.count)
+                        {
+                            if (res.Rooms.FirstOrDefault(r => r.RateId.Equals(selectedRate.rateId) && rate.SearchParty.party?.Equals(selectedRate.searchParty) == true) is CheckoutRoomInfo cri)
+                            {
+                                cri.SelectedQuantity = selectedRate.count;
+                            }
+                            else
+                                throw new InvalidOperationException("Rates don't exist any more");
+
+                            found = true;
+                            break;
+                        }
+                    }
+                    if (found)
+                    {
+                        break;
+                    }
+                }
+                if (!found)
+                {
+                    throw new InvalidOperationException("Rates don't exist any more");
+                }
+            }
+            res.MergePayments(Selectedrates);
+            res.TotalPrice = res.Rooms.Sum(r => (r.TotalPrice * r.SelectedQuantity));
+
+            return res;
+        }
+
+
+        private static string GetPartyInfo(List<SelectedRate> selectedRates)
         {
             try
             {
-                var partyList = JsonSerializer.Deserialize<List<PartyItem>>(party);
-
                 List<string> response = [];
-                if (!partyList.IsNullOrEmpty())
+                if (!selectedRates.IsNullOrEmpty())
                 {
-                    var adults = partyList!.Sum(p => p.adults);
-                    var childs = partyList!.Sum(p => p.children?.Length ?? 0);
+                    var adults = selectedRates!.Sum(p => p.adults * p.count);
+                    var childs = selectedRates!.Sum(p => p.children * p.count);
                     if (adults > 0)
                         response.Add($"{adults} ενήλικες");
                     if (childs > 0)
                         response.Add($"{childs} παιδιά");
-                    if (partyList!.Count == 1)
-                        response.Add($"{partyList.Count} δωμάτιο");
+                    if (selectedRates!.Sum(r => r.count) == 1)
+                        response.Add($"1 δωμάτιο");
                     else
-                        response.Add($"{partyList.Count} δωμάτια");
+                        response.Add($"{selectedRates!.Sum(r => r.count)} δωμάτια");
                 }
                 return string.Join(", ", response);
             }
@@ -525,7 +693,7 @@ namespace TravelBridge.API.Endpoints
             }
         }
 
-        private List<CheckoutRoomInfo> GetDistinctRoomsPerRate(IEnumerable<SingleHotelRoom>? rooms)
+        private static List<CheckoutRoomInfo> GetDistinctRoomsPerRate(IEnumerable<SingleHotelRoom>? rooms)
         {
             if (rooms.IsNullOrEmpty())
             {
@@ -569,9 +737,9 @@ namespace TravelBridge.API.Endpoints
             {
                 { "checkin", ("The check-in date for the search (format: dd/MM/yyyy).", "17/06/2025", true) },
                 { "checkOut", ("The check-out date for the search (format: dd/MM/yyyy).", "20/06/2025", true) },
-                { "adults", ("The number of adults for the search. (only if 1 room)", 2, false) },
-                { "children", ("The ages of children, comma-separated (e.g., '5,10'). (only if 1 room)", "5,10", false) },
-                { "party", ("Additional information about the party (required if more than 1 room. always wins).", "[{\"adults\":2,\"children\":[2,6]},{\"adults\":3}]", false) },
+                //{ "adults", ("The number of adults for the search. (only if 1 room)", 2, false) },
+                //{ "children", ("The ages of children, comma-separated (e.g., '5,10'). (only if 1 room)", "5,10", false) },
+                //{ "party", ("Additional information about the party (required if more than 1 room. always wins).", "[{\"adults\":2,\"children\":[2,6]},{\"adults\":3}]", false) },
                 { "hotelId", ("The id of the hotel", "1-VAROSVILL", true) },
                 { "selectedRates", ("The selected rates", "[{\"rateId\":\"328000-226\",\"count\":1,\"roomType\":\"SUPFAM\"},{\"rateId\":\"273063-3\",\"count\":1,\"roomType\":\"EXEDBL\"}]", true) },
             };

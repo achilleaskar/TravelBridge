@@ -39,6 +39,7 @@ namespace TravelBridge.API.Models.DB
         public DateTime DateFinalized { get; set; }
         public string CheckInTime { get; set; }
         public string CheckOutTime { get; set; }
+        public string? Coupon { get; set; }
 
         internal string GetFullPartyDescription()
         {

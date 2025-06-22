@@ -3,6 +3,7 @@ using System.ComponentModel.DataAnnotations.Schema;
 
 namespace TravelBridge.API.Models.DB
 {
+    [Table("Payments")]
     public class Payment : BaseModel
     {
         public DateTime DateFinalized { get; set; }

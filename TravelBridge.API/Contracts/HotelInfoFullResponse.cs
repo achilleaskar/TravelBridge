@@ -1,4 +1,5 @@
-﻿namespace TravelBridge.API.Contracts
+
+namespace TravelBridge.API.Contracts
 {
     public class HotelInfoFullResponse
     {
@@ -11,5 +12,6 @@
         public HotelData HotelData { get; set; }
 
         public IEnumerable<SingleHotelRoom> Rooms { get; set; }
+        public List<Alternative> Alternatives { get; set; }
     }
 }

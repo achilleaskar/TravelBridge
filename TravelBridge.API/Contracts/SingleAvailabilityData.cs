@@ -56,6 +56,7 @@ namespace TravelBridge.API.Contracts
 
         [JsonPropertyName("rate_desc")]
         public string RateDescription { get; set; }
+
         [JsonPropertyName("remaining")]
         public int? RemainingRooms { get; set; }
 
@@ -85,18 +86,38 @@ namespace TravelBridge.API.Contracts
         public decimal ProfitPerc { get; set; }
         public PartyItem SearchParty { get; set; }
 
-        internal decimal GetTotalPrice()
+
+        internal decimal GetTotalPrice(string code, decimal disc, Models.CouponType couponType)
         {
+            decimal PricePerc = 0.95m;
+            decimal extraDiscPer = 1m;
+            decimal extraDisc = 0m;
+
+            if (Helpers.General.hotelCodes.Contains(code))
+            {
+                PricePerc = 1m;
+            }
+
+            if (disc != 0m)
+            {
+                if (couponType == Models.CouponType.percentage)
+                    extraDiscPer = 1 - disc;
+                else if (couponType == Models.CouponType.flat)
+                {
+                    extraDisc = disc;
+                }
+            }
+
             var minMargin = Pricing.TotalPrice * 10 / 100;
             if (Pricing.Margin < minMargin || (Retail.TotalPrice - Pricing.TotalPrice) < minMargin || Retail == null || Retail.TotalPrice == 0)
             {
-                totalPrice = decimal.Floor((Pricing.TotalPrice + minMargin) * 0.9m);
+                totalPrice = decimal.Floor(((Pricing.TotalPrice + minMargin) * PricePerc * extraDiscPer) - extraDisc);
                 ProfitPerc = decimal.Round(totalPrice / Pricing.TotalPrice, 6);
                 return totalPrice;
             }
             else
             {
-                totalPrice = decimal.Floor(Retail.TotalPrice * 0.9m);
+                totalPrice = decimal.Floor((Retail.TotalPrice * PricePerc * extraDiscPer) - extraDisc);
                 ProfitPerc = decimal.Round(totalPrice / Pricing.TotalPrice, 6);
                 return totalPrice;
             }
@@ -123,8 +144,10 @@ namespace TravelBridge.API.Contracts
 
         [JsonPropertyName("stay")]
         public decimal StayPrice { get; set; }
+
         [JsonPropertyName("taxes")]
         public decimal Taxes { get; set; }
+
         [JsonPropertyName("price")]
         public decimal TotalPrice { get; set; }
 
@@ -152,6 +175,8 @@ namespace TravelBridge.API.Contracts
 
         [JsonPropertyName("data")]
         public HotelInfo Data { get; set; }
+
+        public List<Alternative> Alternatives { get; internal set; }
 
         internal bool CoversRequest(List<PartyItem>? partyList)
         {
@@ -181,5 +206,46 @@ namespace TravelBridge.API.Contracts
         }
 
         #endregion Properties
+    }
+
+    public class AlternativeDaysData : BaseWebHotelierResponse
+    {
+        [JsonPropertyName("data")]
+        public AlternativesInfo Data { get; set; }
+
+        public List<Alternative> Alternatives { get; internal set; }
+    }
+
+    public class AlternativesInfo
+    {
+        public List<AlternativeDayInfo> days { get; set; }
+    }
+
+    public class AlternativeDayInfo
+    {
+        public string date { get; set; }
+        public DateTime dateOnly { get; set; }
+        //public string rm_type { get; set; }
+        //public int rate_id { get; set; }
+        public string status { get; set; }
+        public decimal price { get; set; }
+        //public int excluded_charges { get; set; }
+        public decimal retail { get; set; }
+        //public int discount { get; set; }
+        //public string currency { get; set; }
+        public int min_stay { get; set; }
+        //public string rm_name { get; set; }
+        //public string rate_name { get; set; }
+        //public string board_id { get; set; }
+    }
+
+    public class Alternative
+    {
+        public DateTime CheckIn { get; set; }
+        public DateTime Checkout { get; set; }
+        public decimal MinPrice { get; set; }
+        [JsonIgnore]
+        public decimal NetPrice { get; set; }
+        public int Nights { get; set; }
     }
 }

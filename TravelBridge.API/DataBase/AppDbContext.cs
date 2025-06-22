@@ -1,4 +1,5 @@
 using Microsoft.EntityFrameworkCore;
+using TravelBridge.API.Migrations;
 using TravelBridge.API.Models.DB;
 
 namespace TravelBridge.API.DataBase
@@ -11,6 +12,7 @@ namespace TravelBridge.API.DataBase
         public DbSet<Reservation> Reservations { get; set; }
         public DbSet<ReservationRate> ReservationRates { get; set; }
         public DbSet<Payment> Payments { get; set; }
+        public DbSet<Coupon> Coupons { get; set; }
 
         protected override void OnModelCreating(ModelBuilder modelBuilder)
         {

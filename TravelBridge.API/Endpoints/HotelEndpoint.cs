@@ -3,6 +3,7 @@ using Microsoft.OpenApi.Models;
 using TravelBridge.API.Contracts;
 using TravelBridge.API.Helpers;
 using TravelBridge.API.Helpers.Extensions;
+using TravelBridge.API.Repositories;
 using TravelBridge.API.Services.WebHotelier;
 
 namespace TravelBridge.API.Endpoints
@@ -36,15 +37,15 @@ namespace TravelBridge.API.Endpoints
 
             apiGroup.MapGet("/hotelRoomAvailability",
            [EndpointSummary("Returns availability of the selected hotel")]
-            async (string checkin, string checkOut, int? adults, string? children, int? rooms, string? party, string hotelId) =>
-            await GetHotelAvailability(checkin, checkOut, adults, children, rooms, party, hotelId))
+            async (string checkin, string checkOut, int? adults, string? children, int? rooms, string? party, string hotelId,ReservationsRepository repo) =>
+            await GetHotelAvailability(checkin, checkOut, adults, children, rooms, party, hotelId,repo))
                .WithName("HotelRoomAvailability")
                .WithOpenApi(CustomizeGetHotelAvailabilityOperation);
 
             apiGroup.MapGet("/HotelFullInfo",
            [EndpointSummary("Returns full info for the selected hotel")]
-           async (string checkin, string checkOut, int? adults, string? children, int? rooms, string? party, string hotelId) =>
-           await GetHotelFullInfo(checkin, checkOut, adults, children, rooms, party, hotelId))
+           async (string checkin, string checkOut, int? adults, string? children, int? rooms, string? party, string hotelId, ReservationsRepository reservationsRepository) =>
+           await GetHotelFullInfo(checkin, checkOut, adults, children, rooms, party, hotelId, reservationsRepository))
                .WithName("HotelFullInfo")
                .WithOpenApi(CustomizeGetHotelAvailabilityOperation);
         }
@@ -67,7 +68,7 @@ namespace TravelBridge.API.Endpoints
             return res;
         }
 
-        public async Task<HotelInfoFullResponse> GetHotelFullInfo(string checkin, string checkOut, int? adults, string? children, int? rooms, string? party, string hotelId)
+        public async Task<HotelInfoFullResponse> GetHotelFullInfo(string checkin, string checkOut, int? adults, string? children, int? rooms, string? party, string hotelId, ReservationsRepository reservationsRepository)
         {
             #region Params Validation
 
@@ -121,7 +122,7 @@ namespace TravelBridge.API.Endpoints
                 PropertyId = hotelInfo[1]
             };
 
-            var availTask = webHotelierPropertiesService.GetHotelAvailabilityAsync(availReq, parsedCheckin);
+            var availTask = webHotelierPropertiesService.GetHotelAvailabilityAsync(availReq, parsedCheckin,reservationsRepository);
             var hotelTask = webHotelierPropertiesService.GetHotelInfo(hotelInfo[1]);
             Task.WaitAll(availTask, hotelTask);
 
@@ -145,6 +146,7 @@ namespace TravelBridge.API.Endpoints
                 ErrorMsg = hotelRes.ErrorMsg,
                 HotelData = hotelRes.Data,
                 Rooms = availRes.Data?.Rooms ?? [],
+                Alternatives = availRes.Data?.Alternatives ?? []
             };
             res.HotelData.CustomInfo = GetHotelBasicInfo(availRes, hotelRes);
             res.HotelData.MinPrice = Math.Floor(availRes.Data?.GetMinPrice(out salePrice) ?? 0);
@@ -194,7 +196,7 @@ namespace TravelBridge.API.Endpoints
             return res;
         }
 
-        private async Task<SingleAvailabilityResponse> GetHotelAvailability(string checkin, string checkOut, int? adults, string? children, int? rooms, string? party, string hotelId)
+        private async Task<SingleAvailabilityResponse> GetHotelAvailability(string checkin, string checkOut, int? adults, string? children, int? rooms, string? party, string hotelId, ReservationsRepository reservationsRepository)
         {
             #region Params Validation
 
@@ -243,7 +245,7 @@ namespace TravelBridge.API.Endpoints
                 PropertyId = hotelInfo[1]
             };
 
-            var res = await webHotelierPropertiesService.GetHotelAvailabilityAsync(req, parsedCheckin);
+            var res = await webHotelierPropertiesService.GetHotelAvailabilityAsync(req, parsedCheckin, reservationsRepository);
             if (res.Data != null)
             {
                 res.Data.Provider = Models.Provider.WebHotelier;

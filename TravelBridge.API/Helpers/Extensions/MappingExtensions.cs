@@ -56,7 +56,7 @@ namespace TravelBridge.API.Helpers.Extensions
             return minRate.Retail.TotalPrice;
         }
 
-        public static SingleAvailabilityResponse? MapToResponse(this SingleAvailabilityData data, DateTime checkin)
+        public static SingleAvailabilityResponse? MapToResponse(this SingleAvailabilityData data, DateTime checkin, decimal disc, CouponType couponType)
         {
             if (data?.Data == null)
             {
@@ -69,6 +69,8 @@ namespace TravelBridge.API.Helpers.Extensions
                 HttpCode = data.HttpCode,
                 ErrorCode = data.ErrorCode,
                 ErrorMessage = data.ErrorMessage,
+                CouponDiscount = disc == 0m ? null : (couponType == CouponType.percentage ? ($"-{(int)(disc * 100)} %") : $"-{disc} €"),
+                CouponValid = disc != 0m,
                 Data = new SingleHotelAvailabilityInfo
                 {
                     Code = data.Data.Code,
@@ -82,7 +84,7 @@ namespace TravelBridge.API.Helpers.Extensions
                         RatesCount = r.Count(),
                         Rates = r.Select(rate => new SingleHotelRate
                         {
-                            TotalPrice = rate.GetTotalPrice(),
+                            TotalPrice = rate.GetTotalPrice(data.Data.Code, disc, couponType),
                             SalePrice = rate.GetSalePrice(),
                             NetPrice = rate.Pricing.TotalPrice,
                             Id = rate.Id.ToString(),
@@ -99,7 +101,7 @@ namespace TravelBridge.API.Helpers.Extensions
                                 PaymentsOr = rate.Payments?.Select(a => new PaymentWH { Amount = a.Amount, DueDate = a.DueDate }).ToList() ?? new List<PaymentWH>(),
                                 CancellationFees = rate.CancellationFees.ToList().MapToList(checkin, rate),
                                 Payments = rate.Payments ?? new List<PaymentWH>(),
-                                PartialPayment = General.FillPartialPayment(rate.Payments,checkin),
+                                PartialPayment = General.FillPartialPayment(rate.Payments, checkin),
                                 HasCancellation = rate.CancellationExpiry != null,
                                 HasBoard = !General.NoboardIds.Contains(rate.BoardType ?? 0)
                             },
@@ -112,12 +114,13 @@ namespace TravelBridge.API.Helpers.Extensions
                             //StatusDescription = rate.StatusDescription,
                             RemainingRooms = rate.RemainingRooms
                         }).ToList()
-                    }).ToList()
+                    }).ToList(),
+                    Alternatives = data.Alternatives.GetFinalPrice(disc, data.Data.Code, couponType)
                 }
             };
         }
 
-        
+
 
         private static Dictionary<string, List<string>> categoryMapping = new()
         {
