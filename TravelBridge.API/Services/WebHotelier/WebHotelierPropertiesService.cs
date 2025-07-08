@@ -25,9 +25,11 @@ namespace TravelBridge.API.Services.WebHotelier
     {
         private readonly HttpClient _httpClient;
 
-        public WebHotelierPropertiesService(IHttpClientFactory httpClientFactory)
+        private readonly SmtpEmailSender _mailSender;
+        public WebHotelierPropertiesService(IHttpClientFactory httpClientFactory, SmtpEmailSender mailSender)
         {
             _httpClient = httpClientFactory.CreateClient("WebHotelierApi");
+            _mailSender = mailSender;
         }
 
         public async Task<IEnumerable<AutoCompleteHotel>> SearchPropertyAsync(string propertyName)
@@ -749,7 +751,7 @@ namespace TravelBridge.API.Services.WebHotelier
                 if (reservation.RemainingAmount > 0 && reservation.PartialPayment.nextPayments.Count > 0)
                 {
                     cancelationInfo +=
-                        $"έως {(reservation.PartialPayment.nextPayments.OrderBy(a => a.DueDate)
+                        $" έως {(reservation.PartialPayment.nextPayments.OrderBy(a => a.DueDate)
                         .First().DueDate?.ToString("dd/MM/yyyy HH:mm") ?? "error")}";
                 }
 
@@ -764,13 +766,6 @@ namespace TravelBridge.API.Services.WebHotelier
             htmlContent = htmlContent
                .Replace("[RoomDetails]", FinalRoomDetails);
 
-            // SMTP setup with correct port (587)
-            var smtpClient = new SmtpClient("mail.my-diakopes.gr")
-            {
-                Port = 587, // or your SMTP port
-                Credentials = new NetworkCredential("bookings@my-diakopes.gr", "CNG5YYeI4Cd"),
-                EnableSsl = true,
-            };
 
             // Email message setup
             var mailMessage = new MailMessage
@@ -785,7 +780,7 @@ namespace TravelBridge.API.Services.WebHotelier
             mailMessage.CC.Add("bookings@my-diakopes.gr");
             mailMessage.To.Add(reservation.Customer.Email);
 
-            await smtpClient.SendMailAsync(mailMessage);
+            await _mailSender.SendMailAsync(mailMessage);
         }
     }
 }
