@@ -214,7 +214,7 @@ namespace TravelBridge.API.Endpoints
             CalculateAppliedFilters(res);
             SetSelectedFilters(res, pars);
 
-            if (StringToEnum.ParseEnumFromDescription<SortOption>(pars.sorting ?? "") == SortOption.PriceAsc)
+            if (string.IsNullOrWhiteSpace(pars.sorting) || StringToEnum.ParseEnumFromDescription<SortOption>(pars.sorting ?? "") == SortOption.PriceAsc)
                 res.Results = res.Results.OrderBy(h => h.MinPrice).ToList();
             else if (StringToEnum.ParseEnumFromDescription<SortOption>(pars.sorting ?? "") == SortOption.PriceDesc)
                 res.Results = res.Results.OrderByDescending(h => h.MinPrice).ToList();

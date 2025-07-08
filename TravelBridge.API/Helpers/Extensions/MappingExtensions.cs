@@ -63,6 +63,14 @@ namespace TravelBridge.API.Helpers.Extensions
                 return null;
             }
 
+            foreach (var rate in data.Data.Rates)
+            {
+                if (rate.CancellationExpiry?.Date <= DateTime.Now.AddHours(3).Date)
+                {
+                    rate.CancellationExpiry = null;
+                }
+            }
+
             //TODO: use request dateTime to avoid change of date issue
             return new SingleAvailabilityResponse
             {
