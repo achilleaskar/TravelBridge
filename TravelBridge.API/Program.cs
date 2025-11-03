@@ -8,6 +8,7 @@ using TravelBridge.API.DataBase;
 using TravelBridge.API.Endpoints;
 using TravelBridge.API.Models.Apis;
 using TravelBridge.API.Repositories;
+using TravelBridge.API.Services;
 using TravelBridge.API.Services.ExternalServices;
 using TravelBridge.API.Services.Viva;
 using TravelBridge.API.Services.WebHotelier;
@@ -28,6 +29,9 @@ Log.Logger = new LoggerConfiguration()
     .CreateLogger();
 
 builder.Host.UseSerilog();
+
+// Add HttpContextAccessor
+builder.Services.AddHttpContextAccessor();
 
 builder.Services.AddDbContext<AppDbContext>(options =>
     options.UseMySql(
@@ -119,7 +123,7 @@ builder.Services.AddHttpClient("WebHotelierApi", (sp, client) =>
 });
 
 #endregion HttpClients
-
+builder.Services.AddSingleton<SmtpEmailSender, SmtpEmailSender>();
 builder.Services.AddScoped<HereMapsService>();
 builder.Services.AddScoped<MapBoxService>();
 builder.Services.AddScoped<WebHotelierPropertiesService>();

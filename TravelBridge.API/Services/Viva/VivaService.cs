@@ -12,17 +12,31 @@ namespace TravelBridge.API.Services.Viva
         private readonly VivaAuthService authService;
         private readonly IOptions<VivaApiOptions> options;
         private readonly HttpClient _httpClient;
+        private readonly IHttpContextAccessor _httpContextAccessor;
 
-        public VivaService(VivaAuthService authService, IOptions<VivaApiOptions> options, IHttpClientFactory httpClientFactory)
+        public VivaService(VivaAuthService authService, IOptions<VivaApiOptions> options, IHttpClientFactory httpClientFactory, IHttpContextAccessor httpContextAccessor)
         {
             _httpClient = httpClientFactory.CreateClient("VivaApi");
             this.authService = authService;
             this.options = options;
+            _httpContextAccessor = httpContextAccessor;
         }
 
         public async Task<string> GetPaymentCode(VivaPaymentRequest request)
         {
-            request.SourceCode = options.Value.SourceCode;
+            // Get the origin from the request
+            var origin = _httpContextAccessor.HttpContext?.Request.Headers["Origin"].ToString();
+            var referer = _httpContextAccessor.HttpContext?.Request.Headers["Referer"].ToString();
+            
+            // Check if the caller is from travelproject.gr
+            bool isTravelProject = (!string.IsNullOrEmpty(origin) && origin.Contains("travelproject.gr", StringComparison.OrdinalIgnoreCase)) ||
+                (!string.IsNullOrEmpty(referer) && referer.Contains("travelproject.gr", StringComparison.OrdinalIgnoreCase));
+
+            // Use the appropriate source code
+            request.SourceCode = isTravelProject
+             ? options.Value.SourceCodeTravelProject 
+             : options.Value.SourceCode;
+
             var accessToken = await authService.GetAccessTokenAsync(); // ✅ Auto-fetch token
 
             _httpClient.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", accessToken);

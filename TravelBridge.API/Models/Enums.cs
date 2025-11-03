@@ -14,7 +14,7 @@ namespace TravelBridge.API.Models
 
     public enum CouponType
     {
-        [Description("Percentage")]
+        [Description("none")]
         none = 0,
 
         [Description("Flat")]

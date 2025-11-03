@@ -5,5 +5,6 @@ namespace TravelBridge.API.Models.Apis
         public string AuthUrl { get; set; }
         public string ApiSecret { get; set; }
         public string SourceCode { get; set; }
+        public string SourceCodeTravelProject { get; set; }
     }
 }
