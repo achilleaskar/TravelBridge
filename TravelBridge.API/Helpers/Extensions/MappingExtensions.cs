@@ -109,7 +109,7 @@ namespace TravelBridge.API.Helpers.Extensions
                                 PaymentsOr = rate.Payments?.Select(a => new PaymentWH { Amount = a.Amount, DueDate = a.DueDate }).ToList() ?? new List<PaymentWH>(),
                                 CancellationFees = rate.CancellationFees.ToList().MapToList(checkin, rate),
                                 Payments = rate.Payments ?? new List<PaymentWH>(),
-                                PartialPayment = General.FillPartialPayment(rate.Payments, checkin),
+                                PartialPayment = rate.CancellationExpiry != null ? General.FillPartialPayment(rate.Payments, checkin) : null,
                                 HasCancellation = rate.CancellationExpiry != null,
                                 HasBoard = !General.NoboardIds.Contains(rate.BoardType ?? 0)
                             },
@@ -206,6 +206,17 @@ namespace TravelBridge.API.Helpers.Extensions
             {
                 throw new InvalidOperationException("No cancellation fees available.");
             }
+            if (rate.CancellationExpiry == null && rate.Payments?.Any() == true)
+            {
+                rate.Payments = new List<PaymentWH> {
+                new PaymentWH
+                {
+                    Amount=rate.Payments.Sum(p=>p.Amount),
+                    DueDate = rate.Payments.First().DueDate
+                }
+                };
+            }
+
             List<PaymentWH> payments = rate.Payments?.Select(a => new PaymentWH { Amount = a.Amount, DueDate = a.DueDate }).ToList() ?? new List<PaymentWH>();
             var first = payments.First();
             if (first.Amount == 0)

@@ -112,7 +112,7 @@ namespace TravelBridge.API.Contracts
         public IEnumerable<CancellationFee> CancellationFeesOr { get; set; }
         [JsonIgnore]
         public List<PaymentWH> PaymentsOr { get; set; }
-        public PartialPayment PartialPayment { get; set; }
+        public PartialPayment? PartialPayment { get; set; }
     }
 
     public class StringAmount
