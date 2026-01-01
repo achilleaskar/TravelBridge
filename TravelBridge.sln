@@ -1,7 +1,7 @@
 ﻿
 Microsoft Visual Studio Solution File, Format Version 12.00
 # Visual Studio Version 18
-VisualStudioVersion = 18.1.11312.151 d18.0
+VisualStudioVersion = 18.1.11312.151
 MinimumVisualStudioVersion = 10.0.40219.1
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "TravelBridge.API", "TravelBridge.API\TravelBridge.API.csproj", "{DA9334FF-8A3A-E621-7AB7-3B45009663DA}"
 EndProject
@@ -9,12 +9,6 @@ Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "Solution Items", "Solution 
 	ProjectSection(SolutionItems) = preProject
 		.editorconfig = .editorconfig
 	EndProjectSection
-EndProject
-Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "TravelBridge.Core", "TravelBridge.Core\TravelBridge.Core.csproj", "{A799EC0A-87CA-46FE-9341-9D9ECAE61886}"
-EndProject
-Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "TravelBridge.Infrastructure", "TravelBridge.Infrastructure\TravelBridge.Infrastructure.csproj", "{EB89A2AD-0C95-4A76-BDB3-FD29DFC3F883}"
-EndProject
-Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "TravelBridge.Contracts", "TravelBridge.Contracts\TravelBridge.Contracts.csproj", "{F3ECB301-1566-463E-9967-7866ECF33EB1}"
 EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "TravelBridge.Tests", "TravelBridge.Tests\TravelBridge.Tests.csproj", "{4F339183-04FC-7D1B-7729-AE7284D0C970}"
 EndProject
@@ -40,42 +34,6 @@ Global
 		{DA9334FF-8A3A-E621-7AB7-3B45009663DA}.Release|x64.Build.0 = Release|Any CPU
 		{DA9334FF-8A3A-E621-7AB7-3B45009663DA}.Release|x86.ActiveCfg = Release|Any CPU
 		{DA9334FF-8A3A-E621-7AB7-3B45009663DA}.Release|x86.Build.0 = Release|Any CPU
-		{A799EC0A-87CA-46FE-9341-9D9ECAE61886}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
-		{A799EC0A-87CA-46FE-9341-9D9ECAE61886}.Debug|Any CPU.Build.0 = Debug|Any CPU
-		{A799EC0A-87CA-46FE-9341-9D9ECAE61886}.Debug|x64.ActiveCfg = Debug|Any CPU
-		{A799EC0A-87CA-46FE-9341-9D9ECAE61886}.Debug|x64.Build.0 = Debug|Any CPU
-		{A799EC0A-87CA-46FE-9341-9D9ECAE61886}.Debug|x86.ActiveCfg = Debug|Any CPU
-		{A799EC0A-87CA-46FE-9341-9D9ECAE61886}.Debug|x86.Build.0 = Debug|Any CPU
-		{A799EC0A-87CA-46FE-9341-9D9ECAE61886}.Release|Any CPU.ActiveCfg = Release|Any CPU
-		{A799EC0A-87CA-46FE-9341-9D9ECAE61886}.Release|Any CPU.Build.0 = Release|Any CPU
-		{A799EC0A-87CA-46FE-9341-9D9ECAE61886}.Release|x64.ActiveCfg = Release|Any CPU
-		{A799EC0A-87CA-46FE-9341-9D9ECAE61886}.Release|x64.Build.0 = Release|Any CPU
-		{A799EC0A-87CA-46FE-9341-9D9ECAE61886}.Release|x86.ActiveCfg = Release|Any CPU
-		{A799EC0A-87CA-46FE-9341-9D9ECAE61886}.Release|x86.Build.0 = Release|Any CPU
-		{EB89A2AD-0C95-4A76-BDB3-FD29DFC3F883}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
-		{EB89A2AD-0C95-4A76-BDB3-FD29DFC3F883}.Debug|Any CPU.Build.0 = Debug|Any CPU
-		{EB89A2AD-0C95-4A76-BDB3-FD29DFC3F883}.Debug|x64.ActiveCfg = Debug|Any CPU
-		{EB89A2AD-0C95-4A76-BDB3-FD29DFC3F883}.Debug|x64.Build.0 = Debug|Any CPU
-		{EB89A2AD-0C95-4A76-BDB3-FD29DFC3F883}.Debug|x86.ActiveCfg = Debug|Any CPU
-		{EB89A2AD-0C95-4A76-BDB3-FD29DFC3F883}.Debug|x86.Build.0 = Debug|Any CPU
-		{EB89A2AD-0C95-4A76-BDB3-FD29DFC3F883}.Release|Any CPU.ActiveCfg = Release|Any CPU
-		{EB89A2AD-0C95-4A76-BDB3-FD29DFC3F883}.Release|Any CPU.Build.0 = Release|Any CPU
-		{EB89A2AD-0C95-4A76-BDB3-FD29DFC3F883}.Release|x64.ActiveCfg = Release|Any CPU
-		{EB89A2AD-0C95-4A76-BDB3-FD29DFC3F883}.Release|x64.Build.0 = Release|Any CPU
-		{EB89A2AD-0C95-4A76-BDB3-FD29DFC3F883}.Release|x86.ActiveCfg = Release|Any CPU
-		{EB89A2AD-0C95-4A76-BDB3-FD29DFC3F883}.Release|x86.Build.0 = Release|Any CPU
-		{F3ECB301-1566-463E-9967-7866ECF33EB1}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
-		{F3ECB301-1566-463E-9967-7866ECF33EB1}.Debug|Any CPU.Build.0 = Debug|Any CPU
-		{F3ECB301-1566-463E-9967-7866ECF33EB1}.Debug|x64.ActiveCfg = Debug|Any CPU
-		{F3ECB301-1566-463E-9967-7866ECF33EB1}.Debug|x64.Build.0 = Debug|Any CPU
-		{F3ECB301-1566-463E-9967-7866ECF33EB1}.Debug|x86.ActiveCfg = Debug|Any CPU
-		{F3ECB301-1566-463E-9967-7866ECF33EB1}.Debug|x86.Build.0 = Debug|Any CPU
-		{F3ECB301-1566-463E-9967-7866ECF33EB1}.Release|Any CPU.ActiveCfg = Release|Any CPU
-		{F3ECB301-1566-463E-9967-7866ECF33EB1}.Release|Any CPU.Build.0 = Release|Any CPU
-		{F3ECB301-1566-463E-9967-7866ECF33EB1}.Release|x64.ActiveCfg = Release|Any CPU
-		{F3ECB301-1566-463E-9967-7866ECF33EB1}.Release|x64.Build.0 = Release|Any CPU
-		{F3ECB301-1566-463E-9967-7866ECF33EB1}.Release|x86.ActiveCfg = Release|Any CPU
-		{F3ECB301-1566-463E-9967-7866ECF33EB1}.Release|x86.Build.0 = Release|Any CPU
 		{4F339183-04FC-7D1B-7729-AE7284D0C970}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
 		{4F339183-04FC-7D1B-7729-AE7284D0C970}.Debug|Any CPU.Build.0 = Debug|Any CPU
 		{4F339183-04FC-7D1B-7729-AE7284D0C970}.Debug|x64.ActiveCfg = Debug|Any CPU

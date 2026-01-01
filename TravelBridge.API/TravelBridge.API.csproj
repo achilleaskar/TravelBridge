@@ -45,10 +45,4 @@
 	  <PackageReference Include="Swashbuckle.AspNetCore.Swagger" Version="8.0.0" />
 	</ItemGroup>
 
-	<ItemGroup>
-	  <ProjectReference Include="..\TravelBridge.Core\TravelBridge.Core.csproj" />
-	  <ProjectReference Include="..\TravelBridge.Infrastructure\TravelBridge.Infrastructure.csproj" />
-	  <ProjectReference Include="..\TravelBridge.Contracts\TravelBridge.Contracts.csproj" />
-	</ItemGroup>
-
 </Project>
