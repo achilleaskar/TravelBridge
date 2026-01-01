@@ -138,6 +138,294 @@ namespace TravelBridge.API.Migrations
                     b.ToTable("NextPaymentDB");
                 });
 
+            modelBuilder.Entity("TravelBridge.API.Models.DB.OwnedProperty", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("int");
+
+                    MySqlPropertyBuilderExtensions.UseMySqlIdentityColumn(b.Property<int>("Id"));
+
+                    b.Property<string>("Address")
+                        .HasMaxLength(100)
+                        .HasColumnType("varchar(100)");
+
+                    b.Property<string>("CheckInTime")
+                        .IsRequired()
+                        .HasMaxLength(10)
+                        .HasColumnType("varchar(10)");
+
+                    b.Property<string>("CheckOutTime")
+                        .IsRequired()
+                        .HasMaxLength(10)
+                        .HasColumnType("varchar(10)");
+
+                    b.Property<int>("ChildrenAgeFrom")
+                        .HasColumnType("int");
+
+                    b.Property<int>("ChildrenAgeTo")
+                        .HasColumnType("int");
+
+                    b.Property<bool>("ChildrenAllowed")
+                        .HasColumnType("tinyint(1)");
+
+                    b.Property<string>("City")
+                        .HasMaxLength(50)
+                        .HasColumnType("varchar(50)");
+
+                    b.Property<string>("Code")
+                        .IsRequired()
+                        .HasMaxLength(20)
+                        .HasColumnType("varchar(20)");
+
+                    b.Property<string>("CountryCode")
+                        .IsRequired()
+                        .HasMaxLength(2)
+                        .HasColumnType("varchar(2)");
+
+                    b.Property<DateTime?>("DateCreated")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("datetime(6)")
+                        .HasDefaultValueSql("CURRENT_TIMESTAMP");
+
+                    b.Property<DateTime?>("DateUpdated")
+                        .HasColumnType("datetime(6)");
+
+                    b.Property<string>("Description")
+                        .HasMaxLength(500)
+                        .HasColumnType("varchar(500)");
+
+                    b.Property<bool>("IsActive")
+                        .HasColumnType("tinyint(1)");
+
+                    b.Property<decimal?>("Latitude")
+                        .HasColumnType("DECIMAL(10,7)");
+
+                    b.Property<decimal?>("Longitude")
+                        .HasColumnType("DECIMAL(10,7)");
+
+                    b.Property<string>("Name")
+                        .IsRequired()
+                        .HasMaxLength(100)
+                        .HasColumnType("varchar(100)");
+
+                    b.Property<string>("PhotoUrls")
+                        .HasMaxLength(2000)
+                        .HasColumnType("varchar(2000)");
+
+                    b.Property<string>("PostalCode")
+                        .HasMaxLength(20)
+                        .HasColumnType("varchar(20)");
+
+                    b.Property<string>("PropertyType")
+                        .HasMaxLength(50)
+                        .HasColumnType("varchar(50)");
+
+                    b.Property<int?>("Rating")
+                        .HasColumnType("int");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("Code")
+                        .IsUnique();
+
+                    b.ToTable("OwnedProperties");
+                });
+
+            modelBuilder.Entity("TravelBridge.API.Models.DB.OwnedRoom", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("int");
+
+                    MySqlPropertyBuilderExtensions.UseMySqlIdentityColumn(b.Property<int>("Id"));
+
+                    b.Property<string>("Amenities")
+                        .HasMaxLength(1000)
+                        .HasColumnType("varchar(1000)");
+
+                    b.Property<string>("Code")
+                        .IsRequired()
+                        .HasMaxLength(20)
+                        .HasColumnType("varchar(20)");
+
+                    b.Property<DateTime?>("DateCreated")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("datetime(6)")
+                        .HasDefaultValueSql("CURRENT_TIMESTAMP");
+
+                    b.Property<DateTime?>("DateUpdated")
+                        .HasColumnType("datetime(6)");
+
+                    b.Property<string>("Description")
+                        .HasMaxLength(1000)
+                        .HasColumnType("varchar(1000)");
+
+                    b.Property<bool>("IsActive")
+                        .HasColumnType("tinyint(1)");
+
+                    b.Property<int>("MaxAdults")
+                        .HasColumnType("int");
+
+                    b.Property<int>("MaxChildren")
+                        .HasColumnType("int");
+
+                    b.Property<int>("MaxOccupancy")
+                        .HasColumnType("int");
+
+                    b.Property<int>("MinOccupancy")
+                        .HasColumnType("int");
+
+                    b.Property<string>("Name")
+                        .IsRequired()
+                        .HasMaxLength(100)
+                        .HasColumnType("varchar(100)");
+
+                    b.Property<string>("PhotoUrls")
+                        .HasMaxLength(2000)
+                        .HasColumnType("varchar(2000)");
+
+                    b.Property<int>("PropertyId")
+                        .HasColumnType("int");
+
+                    b.Property<int?>("SizeSquareMeters")
+                        .HasColumnType("int");
+
+                    b.Property<int>("TotalInventory")
+                        .HasColumnType("int");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("PropertyId", "Code")
+                        .IsUnique();
+
+                    b.ToTable("OwnedRooms");
+                });
+
+            modelBuilder.Entity("TravelBridge.API.Models.DB.OwnedRoomAvailability", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("int");
+
+                    MySqlPropertyBuilderExtensions.UseMySqlIdentityColumn(b.Property<int>("Id"));
+
+                    b.Property<int>("AvailableRooms")
+                        .HasColumnType("int");
+
+                    b.Property<bool>("CheckInAllowed")
+                        .HasColumnType("tinyint(1)");
+
+                    b.Property<bool>("CheckOutAllowed")
+                        .HasColumnType("tinyint(1)");
+
+                    b.Property<DateOnly>("Date")
+                        .HasColumnType("date");
+
+                    b.Property<DateTime?>("DateCreated")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("datetime(6)")
+                        .HasDefaultValueSql("CURRENT_TIMESTAMP");
+
+                    b.Property<int>("MaxStay")
+                        .HasColumnType("int");
+
+                    b.Property<int>("MinStay")
+                        .HasColumnType("int");
+
+                    b.Property<decimal>("NetPrice")
+                        .HasColumnType("DECIMAL(10,2)");
+
+                    b.Property<int>("RateId")
+                        .HasColumnType("int");
+
+                    b.Property<decimal>("RetailPrice")
+                        .HasColumnType("DECIMAL(10,2)");
+
+                    b.Property<int>("RoomId")
+                        .HasColumnType("int");
+
+                    b.Property<bool>("StopSell")
+                        .HasColumnType("tinyint(1)");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("RateId");
+
+                    b.HasIndex("Date", "RoomId");
+
+                    b.HasIndex("RoomId", "RateId", "Date")
+                        .IsUnique();
+
+                    b.ToTable("OwnedRoomAvailability");
+                });
+
+            modelBuilder.Entity("TravelBridge.API.Models.DB.OwnedRoomRate", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("int");
+
+                    MySqlPropertyBuilderExtensions.UseMySqlIdentityColumn(b.Property<int>("Id"));
+
+                    b.Property<bool>("AllowPartialPayment")
+                        .HasColumnType("tinyint(1)");
+
+                    b.Property<int>("BoardType")
+                        .HasColumnType("int");
+
+                    b.Property<string>("CancellationPenalty")
+                        .HasMaxLength(500)
+                        .HasColumnType("varchar(500)");
+
+                    b.Property<DateTime?>("DateCreated")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("datetime(6)")
+                        .HasDefaultValueSql("CURRENT_TIMESTAMP");
+
+                    b.Property<DateTime?>("DateUpdated")
+                        .HasColumnType("datetime(6)");
+
+                    b.Property<decimal>("DefaultNetPrice")
+                        .HasColumnType("DECIMAL(10,2)");
+
+                    b.Property<decimal>("DefaultRetailPrice")
+                        .HasColumnType("DECIMAL(10,2)");
+
+                    b.Property<string>("Description")
+                        .HasMaxLength(500)
+                        .HasColumnType("varchar(500)");
+
+                    b.Property<int>("FreeCancellationDaysBefore")
+                        .HasColumnType("int");
+
+                    b.Property<bool>("HasFreeCancellation")
+                        .HasColumnType("tinyint(1)");
+
+                    b.Property<bool>("IsActive")
+                        .HasColumnType("tinyint(1)");
+
+                    b.Property<string>("Name")
+                        .IsRequired()
+                        .HasMaxLength(100)
+                        .HasColumnType("varchar(100)");
+
+                    b.Property<int>("PrepaymentPercent")
+                        .HasColumnType("int");
+
+                    b.Property<int>("RoomId")
+                        .HasColumnType("int");
+
+                    b.Property<int>("SortOrder")
+                        .HasColumnType("int");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("RoomId");
+
+                    b.ToTable("OwnedRoomRates");
+                });
+
             modelBuilder.Entity("TravelBridge.API.Models.DB.PartialPaymentDB", b =>
                 {
                     b.Property<int>("Id")
@@ -384,6 +672,47 @@ namespace TravelBridge.API.Migrations
                         .HasForeignKey("PartialPaymentDBId");
                 });
 
+            modelBuilder.Entity("TravelBridge.API.Models.DB.OwnedRoom", b =>
+                {
+                    b.HasOne("TravelBridge.API.Models.DB.OwnedProperty", "Property")
+                        .WithMany("Rooms")
+                        .HasForeignKey("PropertyId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.Navigation("Property");
+                });
+
+            modelBuilder.Entity("TravelBridge.API.Models.DB.OwnedRoomAvailability", b =>
+                {
+                    b.HasOne("TravelBridge.API.Models.DB.OwnedRoomRate", "Rate")
+                        .WithMany("Availability")
+                        .HasForeignKey("RateId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.HasOne("TravelBridge.API.Models.DB.OwnedRoom", "Room")
+                        .WithMany("Availability")
+                        .HasForeignKey("RoomId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.Navigation("Rate");
+
+                    b.Navigation("Room");
+                });
+
+            modelBuilder.Entity("TravelBridge.API.Models.DB.OwnedRoomRate", b =>
+                {
+                    b.HasOne("TravelBridge.API.Models.DB.OwnedRoom", "Room")
+                        .WithMany("Rates")
+                        .HasForeignKey("RoomId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.Navigation("Room");
+                });
+
             modelBuilder.Entity("TravelBridge.API.Models.DB.Payment", b =>
                 {
                     b.HasOne("TravelBridge.API.Models.DB.Customer", "Customer")
@@ -440,6 +769,23 @@ namespace TravelBridge.API.Migrations
                     b.Navigation("Payments");
 
                     b.Navigation("Reservations");
+                });
+
+            modelBuilder.Entity("TravelBridge.API.Models.DB.OwnedProperty", b =>
+                {
+                    b.Navigation("Rooms");
+                });
+
+            modelBuilder.Entity("TravelBridge.API.Models.DB.OwnedRoom", b =>
+                {
+                    b.Navigation("Availability");
+
+                    b.Navigation("Rates");
+                });
+
+            modelBuilder.Entity("TravelBridge.API.Models.DB.OwnedRoomRate", b =>
+                {
+                    b.Navigation("Availability");
                 });
 
             modelBuilder.Entity("TravelBridge.API.Models.DB.PartialPaymentDB", b =>

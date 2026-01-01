@@ -6,11 +6,10 @@ using Microsoft.OpenApi.Models;
 using TravelBridge.API.Contracts;
 using TravelBridge.API.Helpers;
 using TravelBridge.API.Models;
-using TravelBridge.API.Models.ExternalModels;
-using TravelBridge.API.Models.WebHotelier;
 using TravelBridge.API.Repositories;
 using TravelBridge.API.Services.Viva;
 using TravelBridge.API.Services.WebHotelier;
+using TravelBridge.Infrastructure.Integrations.Viva;
 using static TravelBridge.API.Helpers.General;
 
 namespace TravelBridge.API.Endpoints
@@ -187,25 +186,43 @@ namespace TravelBridge.API.Endpoints
             {
                 return new SuccessfullPaymentResponse(error: "Reservation not found", "NO_RES");
             }
-            //await webHotelierPropertiesService.SendConfirmationEmail();
 
             try
             {
                 if (await viva.ValidatePayment(pay.OrderCode, pay.Tid, reservation) && await repo.UpdatePaymentSucceed(pay.OrderCode, pay.Tid))
                 {
-                    await webHotelierPropertiesService.CreateBooking(reservation, repo);
-
-                    return new SuccessfullPaymentResponse
+                    try
                     {
-                        SuccessfullPayment = true,
-                        Data = new DataSucess
+                        await webHotelierPropertiesService.CreateBooking(reservation, repo);
+
+                        return new SuccessfullPaymentResponse
                         {
-                            CheckIn = reservation.CheckIn.ToString("dd/MM/yyyy"),
-                            CheckOut = reservation.CheckOut.ToString("dd/MM/yyyy"),
-                            HotelName = reservation.HotelName ?? "",
-                            ReservationId = reservation.Id
-                        }
-                    };
+                            SuccessfullPayment = true,
+                            Data = new DataSucess
+                            {
+                                CheckIn = reservation.CheckIn.ToString("dd/MM/yyyy"),
+                                CheckOut = reservation.CheckOut.ToString("dd/MM/yyyy"),
+                                HotelName = reservation.HotelName ?? "",
+                                ReservationId = reservation.Id
+                            }
+                        };
+                    }
+                    catch (Exception bookingEx)
+                    {
+                        // Payment succeeded but booking failed - CRITICAL: notify admins
+                        var paidAmount = reservation.Payments?
+                            .Where(p => p.PaymentStatus == PaymentStatus.Success)
+                            .Sum(p => p.Amount) ?? 0;
+
+                        await webHotelierPropertiesService.SendBookingErrorNotificationAsync(
+                            reservation,
+                            paidAmount,
+                            bookingEx.Message);
+
+                        return new SuccessfullPaymentResponse(
+                            error: $"Η πληρωμή σας ολοκληρώθηκε επιτυχώς αλλά υπήρξε πρόβλημα με την κράτηση (#{reservation.Id}). Θα επικοινωνήσουμε μαζί σας σύντομα.",
+                            "BOOKING_ERROR");
+                    }
                 }
                 else
                 {
@@ -279,7 +296,7 @@ namespace TravelBridge.API.Endpoints
 
             var hotelTask = webHotelierPropertiesService.GetHotelInfo(hotelInfo[1]);
             var availTask = webHotelierPropertiesService.GetHotelAvailabilityAsync(availReq, parsedCheckin, repo, SelectedRates, pars.couponCode);
-            Task.WaitAll(availTask, hotelTask);
+            await Task.WhenAll(availTask, hotelTask);
 
             SingleAvailabilityResponse? availRes = await availTask;
             HotelInfoResponse? hotelRes = await hotelTask;
@@ -431,7 +448,7 @@ namespace TravelBridge.API.Endpoints
 
             var hotelTask = webHotelierPropertiesService.GetHotelInfo(hotelInfo[1]);
             var availTask = webHotelierPropertiesService.GetHotelAvailabilityAsync(availReq, parsedCheckin, repo, Selectedrates, reservationRequest.couponCode);
-            Task.WaitAll(availTask, hotelTask);
+            await Task.WhenAll(availTask, hotelTask);
 
             SingleAvailabilityResponse? availRes = await availTask;
             HotelInfoResponse? hotelRes = await hotelTask;
@@ -463,8 +480,7 @@ namespace TravelBridge.API.Endpoints
                 CheckIn = reservationRequest.reservationDetails.checkIn,
                 CheckOut = reservationRequest.reservationDetails.checkOut,
                 Nights = nights,
-                Rooms = GetDistinctRoomsPerRate(availRes.Data?.Rooms),//TODO: ti kanei afto?
-                SelectedPeople = GetPartyInfo(Selectedrates)
+                Rooms = GetDistinctRoomsPerRate(availRes.Data?.Rooms)
             };
 
             if (!availRes.CoversRequest(Selectedrates))
@@ -579,7 +595,7 @@ namespace TravelBridge.API.Endpoints
 
             var hotelTask = webHotelierPropertiesService.GetHotelInfo(hotelInfo[1]);
             var availTask = webHotelierPropertiesService.GetHotelAvailabilityAsync(availReq, parsedCheckin, null, Selectedrates);
-            Task.WaitAll(availTask, hotelTask);
+            await Task.WhenAll(availTask, hotelTask);
 
             SingleAvailabilityResponse? availRes = await availTask;
             HotelInfoResponse? hotelRes = await hotelTask;

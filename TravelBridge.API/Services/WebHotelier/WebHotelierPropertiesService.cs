@@ -1,35 +1,122 @@
-using System.Collections.Generic;
 using System.Globalization;
-using System.IO;
-using System.Net;
 using System.Net.Http.Headers;
 using System.Net.Mail;
 using System.Reflection;
 using System.Text.Json;
-using Microsoft.AspNetCore.Mvc.ApplicationModels;
-using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Caching.Memory;
+using Microsoft.Extensions.Options;
 using TravelBridge.API.Contracts;
-using TravelBridge.API.DataBase;
 using TravelBridge.API.Helpers.Extensions;
 using TravelBridge.API.Models;
+using TravelBridge.API.Models.Apis;
 using TravelBridge.API.Models.DB;
 using TravelBridge.API.Models.Plugin.AutoComplete;
 using TravelBridge.API.Models.WebHotelier;
 using TravelBridge.API.Repositories;
-using static System.Runtime.InteropServices.JavaScript.JSType;
+using TravelBridge.Core.Interfaces;
 using static TravelBridge.API.Helpers.General;
 
 namespace TravelBridge.API.Services.WebHotelier
 {
-    public class WebHotelierPropertiesService
+    public class WebHotelierPropertiesService : IHotelProvider
     {
         private readonly HttpClient _httpClient;
-
         private readonly SmtpEmailSender _mailSender;
-        public WebHotelierPropertiesService(IHttpClientFactory httpClientFactory, SmtpEmailSender mailSender)
+        private readonly WebHotelierApiOptions _options;
+        private readonly IMemoryCache _cache;
+
+        // Cache duration for hotel and room info (6 hours)
+        private static readonly TimeSpan CacheDuration = TimeSpan.FromHours(6);
+
+        #region IHotelProvider Implementation
+
+        public int ProviderId => (int)Provider.WebHotelier;
+        public string ProviderName => "WebHotelier";
+
+        public async Task<IEnumerable<ProviderHotelSearchResult>> SearchPropertiesAsync(string propertyName, CancellationToken cancellationToken = default)
+        {
+            var results = await SearchPropertyAsync(propertyName);
+            return results.Select(h => new ProviderHotelSearchResult
+            {
+                Id = h.Id,
+                Code = h.OrId,
+                ProviderId = ProviderId,
+                Name = h.Name,
+                Location = h.Location,
+                CountryCode = h.CountryCode,
+                PropertyType = h.OriginalType
+            });
+        }
+
+        public async Task<IReadOnlyList<ProviderHotelSearchResult>> GetAllPropertiesAsync(CancellationToken cancellationToken = default)
+        {
+            var results = await GetAllPropertiesAsync();
+            return results.Select(h => new ProviderHotelSearchResult
+            {
+                Id = h.Id,
+                Code = h.OrId,
+                ProviderId = ProviderId,
+                Name = h.Name,
+                Location = h.Location,
+                CountryCode = h.CountryCode,
+                PropertyType = h.OriginalType
+            }).ToList();
+        }
+
+        public async Task<ProviderHotelDetails> GetHotelInfoAsync(string hotelCode, CancellationToken cancellationToken = default)
+        {
+            var result = await GetHotelInfo(hotelCode);
+            return new ProviderHotelDetails
+            {
+                Code = result.Data.Code,
+                Name = result.Data.Name,
+                Description = result.Data.Description,
+                Rating = result.Data.Rating,
+                PropertyType = result.Data.Type,
+                Location = result.Data.Location != null ? new ProviderHotelLocation
+                {
+                    Latitude = (decimal)result.Data.Location.Latitude,
+                    Longitude = (decimal)result.Data.Location.Longitude,
+                    Name = result.Data.Location.Name,
+                    Address = result.Data.Location.Address,
+                    ZipCode = result.Data.Location.Zip,
+                    CountryCode = result.Data.Location.Country
+                } : null,
+                Operation = result.Data.Operation != null ? new ProviderHotelOperation
+                {
+                    CheckInTime = result.Data.Operation.CheckinTime,
+                    CheckOutTime = result.Data.Operation.CheckoutTime
+                } : null,
+                Photos = result.Data.LargePhotos
+            };
+        }
+
+        public async Task<ProviderRoomDetails> GetRoomInfoAsync(string hotelCode, string roomCode, CancellationToken cancellationToken = default)
+        {
+            var result = await GetRoomInfo(hotelCode, roomCode);
+            return new ProviderRoomDetails
+            {
+                Code = roomCode,
+                Name = result.Data.Name,
+                Description = result.Data.Description,
+                MaxOccupancy = result.Data.Capacity?.MaxPersons,
+                Photos = result.Data.LargePhotos,
+                Amenities = result.Data.Amenities
+            };
+        }
+
+        #endregion IHotelProvider Implementation
+
+        public WebHotelierPropertiesService(
+            IHttpClientFactory httpClientFactory, 
+            SmtpEmailSender mailSender, 
+            IOptions<WebHotelierApiOptions> options,
+            IMemoryCache cache)
         {
             _httpClient = httpClientFactory.CreateClient("WebHotelierApi");
             _mailSender = mailSender;
+            _options = options.Value;
+            _cache = cache;
         }
 
         public async Task<IEnumerable<AutoCompleteHotel>> SearchPropertyAsync(string propertyName)
@@ -479,6 +566,13 @@ namespace TravelBridge.API.Services.WebHotelier
 
         internal async Task<HotelInfoResponse> GetHotelInfo(string hotelId)
         {
+            // Try to get from cache first
+            var cacheKey = $"hotel_info_{hotelId}";
+            if (_cache.TryGetValue(cacheKey, out HotelInfoResponse? cachedResult) && cachedResult != null)
+            {
+                return cachedResult;
+            }
+
             try
             {
                 // Build the query string from the availabilityRequest object
@@ -494,6 +588,10 @@ namespace TravelBridge.API.Services.WebHotelier
                 var res = JsonSerializer.Deserialize<HotelInfoResponse>(jsonString) ?? throw new InvalidOperationException("Hotel not Found");
                 res.Data.LargePhotos = res.Data.PhotosItems.Select(p => p.Large);
                 res.Data.PhotosItems = [];
+
+                // Cache the result for 6 hours
+                _cache.Set(cacheKey, res, CacheDuration);
+
                 return res;
             }
             catch (HttpRequestException ex)
@@ -504,6 +602,13 @@ namespace TravelBridge.API.Services.WebHotelier
 
         internal async Task<RoomInfoRespone> GetRoomInfo(string hotelId, string roomcode)
         {
+            // Try to get from cache first
+            var cacheKey = $"room_info_{hotelId}_{roomcode}";
+            if (_cache.TryGetValue(cacheKey, out RoomInfoRespone? cachedResult) && cachedResult != null)
+            {
+                return cachedResult;
+            }
+
             try
             {
                 // Build the query string from the availabilityRequest object
@@ -520,6 +625,11 @@ namespace TravelBridge.API.Services.WebHotelier
                 res.Data.LargePhotos = res.Data.PhotosItems.Select(p => p.Large);
                 res.Data.MediumPhotos = res.Data.PhotosItems.Select(p => p.Medium);
                 //res.Data.PhotosItems = res.Data.PhotosItems.Select(a => new PhotoInfo { Medium = a.Medium });
+
+
+                // Cache the result for 6 hours
+                _cache.Set(cacheKey, res, CacheDuration);
+
                 return res;
             }
             catch (HttpRequestException ex)
@@ -570,12 +680,12 @@ namespace TravelBridge.API.Services.WebHotelier
                         { "email", reservation.Customer!.Email },
                         { "remarks", reservation.Customer!.Notes },
                         { "payment_method", "CC" },
-                        { "cardNumber", "5375346200033267" },
-                        { "cardType", "MC" },
-                        { "cardName", "Vasileios Kioroglou" },
-                        { "cardMonth", "05" },
-                        { "cardYear", "2026" },
-                        { "cardCVV", "590" }
+                        { "cardNumber", _options.GuaranteeCard.Number },
+                        { "cardType", _options.GuaranteeCard.Type },
+                        { "cardName", _options.GuaranteeCard.Name },
+                        { "cardMonth", _options.GuaranteeCard.Month },
+                        { "cardYear", _options.GuaranteeCard.Year },
+                        { "cardCVV", _options.GuaranteeCard.CVV }
                     };
 
                     if (!await repo.UpdateReservationRateStatus(rate.Id, BookingStatus.Running, BookingStatus.Pending))
@@ -781,6 +891,95 @@ namespace TravelBridge.API.Services.WebHotelier
             mailMessage.To.Add(reservation.Customer.Email);
 
             await _mailSender.SendMailAsync(mailMessage);
+        }
+
+        /// <summary>
+        /// Sends an urgent notification email to admins when payment succeeded but booking failed.
+        /// This is a critical scenario where the customer paid but has no booking.
+        /// </summary>
+        public async Task SendBookingErrorNotificationAsync(Reservation reservation, decimal paidAmount, string errorMessage)
+        {
+            var customerNotes = reservation.Customer?.Notes ?? "-";
+            var htmlContent = $@"
+                        <!DOCTYPE html>
+                        <html>
+                        <head>
+                            <style>
+                                body {{ font-family: Arial, sans-serif; line-height: 1.6; color: #333; }}
+                                .container {{ max-width: 600px; margin: 0 auto; padding: 20px; }}
+                                .alert {{ background-color: #f8d7da; border: 1px solid #f5c6cb; color: #721c24; padding: 15px; border-radius: 5px; margin-bottom: 20px; }}
+                                .info {{ background-color: #f8f9fa; padding: 15px; border-radius: 5px; margin-bottom: 15px; }}
+                                .label {{ font-weight: bold; color: #495057; }}
+                                h1 {{ color: #dc3545; }}
+                                h2 {{ color: #495057; border-bottom: 1px solid #dee2e6; padding-bottom: 10px; }}
+                            </style>
+                        </head>
+                        <body>
+                            <div class=""container"">
+                                <div class=""alert"">
+                                    <h1>⚠️ ΠΡΟΣΟΧΗ: Αποτυχία Κράτησης μετά από Επιτυχή Πληρωμή</h1>
+                                    <p>Ο πελάτης πλήρωσε αλλά η κράτηση στο WebHotelier απέτυχε. Απαιτείται άμεση ενέργεια!</p>
+                                </div>
+
+                                <h2>Στοιχεία Κράτησης</h2>
+                                <div class=""info"">
+                                    <p><span class=""label"">Αριθμός Κράτησης:</span> {reservation.Id}</p>
+                                    <p><span class=""label"">Ξενοδοχείο:</span> {reservation.HotelName} ({reservation.HotelCode})</p>
+                                    <p><span class=""label"">Check-in:</span> {reservation.CheckIn:dd/MM/yyyy}</p>
+                                    <p><span class=""label"">Check-out:</span> {reservation.CheckOut:dd/MM/yyyy}</p>
+                                    <p><span class=""label"">Συνολικό Ποσό:</span> {reservation.TotalAmount:F2} €</p>
+                                    <p><span class=""label"">Ποσό που Πληρώθηκε:</span> {paidAmount:F2} €</p>
+                                </div>
+
+                                <h2>Στοιχεία Πελάτη</h2>
+                                <div class=""info"">
+                                    <p><span class=""label"">Όνομα:</span> {reservation.Customer?.FirstName} {reservation.Customer?.LastName}</p>
+                                    <p><span class=""label"">Email:</span> {reservation.Customer?.Email}</p>
+                                    <p><span class=""label"">Τηλέφωνο:</span> {reservation.Customer?.Tel}</p>
+                                    <p><span class=""label"">Σημειώσεις:</span> {customerNotes}</p>
+                                </div>
+
+                                <h2>Σφάλμα</h2>
+                                <div class=""info"" style=""background-color: #fff3cd;"">
+                                    <p><span class=""label"">Μήνυμα Σφάλματος:</span></p>
+                                    <pre style=""white-space: pre-wrap; word-wrap: break-word;"">{errorMessage}</pre>
+                                </div>
+
+                                <h2>Απαιτούμενες Ενέργειες</h2>
+                                <ol>
+                                    <li>Επικοινωνήστε με τον πελάτη για να τον ενημερώσετε</li>
+                                    <li>Δημιουργήστε την κράτηση χειροκίνητα στο WebHotelier</li>
+                                    <li>Ή προχωρήστε σε επιστροφή χρημάτων μέσω Viva Wallet</li>
+                                </ol>
+
+                                <p style=""color: #6c757d; font-size: 12px; margin-top: 30px;"">
+                                    Αυτό το email στάλθηκε αυτόματα από το σύστημα TravelBridge στις {DateTime.Now:dd/MM/yyyy HH:mm:ss}
+                                </p>
+                            </div>
+                        </body>
+                        </html>";
+
+            var mailMessage = new MailMessage
+            {
+                From = new MailAddress("bookings@my-diakopes.gr"),
+                Subject = $"🚨 ΕΠΕΙΓΟΝ: Αποτυχία Κράτησης #{reservation.Id} - Πληρωμή Ολοκληρώθηκε",
+                Body = htmlContent,
+                IsBodyHtml = true,
+            };
+
+            // Send to all admin addresses
+            mailMessage.To.Add("bookings@my-diakopes.gr");
+            mailMessage.To.Add("achilleaskaragiannis@outlook.com");
+
+            try
+            {
+                await _mailSender.SendMailAsync(mailMessage);
+            }
+            catch (Exception)
+            {
+                // Log but don't throw - we don't want email failure to mask the original error
+                // The booking error is already being returned to the user
+            }
         }
     }
 }

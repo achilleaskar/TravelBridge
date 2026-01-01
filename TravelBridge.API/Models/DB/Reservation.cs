@@ -1,7 +1,6 @@
 using System.ComponentModel.DataAnnotations;
 using System.ComponentModel.DataAnnotations.Schema;
 using System.Text;
-using TravelBridge.API.Contracts;
 
 namespace TravelBridge.API.Models.DB
 {

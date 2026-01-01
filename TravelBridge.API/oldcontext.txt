@@ -1,0 +1,190 @@
+ok i still see some architectural issues. we have too many files in api project. models services repositories interfaces... many many. create a plan on what should we move and where, and after we move we will update the usings. keep in mind that we should not have circular dependencies. if you see any classes that arent properly used and are mixed throug db/requests/respponses etc its better to duplicate them or create bases classes thatn do discounts in arcitecture update. should we create a new project that will have all the db stuf? db context mirgations db models etc? analyze first, plan , ask me whatever u want and then we decide on how is prefered to move. if we have made any architectural mistakes an mied up logcis, now its the time to fix these
+
+My recommendation: Option B - Use Infrastructure for everything (cleaner, standard pattern)
+
+yes we only need on db context model. and if needed remove ef logic from models and put it in fluent api logic in dbcontext. 
+
+2) yes we only need one api class that will have everything. maybe only use different enum classes if one is only used in db etc.
+
+3) yes move everythung as needed to the lowest possible level. 
+
+4.	Contracts Cleanup?
+•	The current API/Contracts/ contains WebHotelier-specific response models
+•	True contracts (shared DTOs) should be provider-agnostic
+•	Move WebHotelier-specific ones to Infrastructure
+
+yes we need to somehow keep providers model only at them without creating dependencies in other fileds. then create mappings etc to translate them into needed models. dont have dependencies to providers. 
+
+5.	PartyItem Issue?
+•	Create a shared base in Core: PartyInfo (adults, children)
+•	PartyItem (WebHotelier) extends or maps from it
+•	PartyItemDB (DB) maps from the shared base
+
+yes do this. 
+
+2.	Breaking changes tolerance: Moving all these files will require updating many using statements. Are you okay with this being a larger refactoring?
+
+yes i am ok with this. 
+
+4.	Migration strategy: Should we do this in one big step or incrementally (e.g., first DB stuff, then services, then models)?
+if we do it at one big step i think will be easier because we will fix namsespaces and stuff after we have everything in place. but this needs to decide where to put what before movind also in am ok to do all needed changes in order to decouple everything prividers classes must not create dependencies in  our main locic. use middle methids to get whats needed for our services to work properly
+
+
+Let me analyze the current structure thoroughly to understand what's mixed up and where things should go.
+Now I have a clear picture. Let me provide you with a comprehensive analysis and proposal.
+
+---
+
+## 🔍 Architecture Analysis
+
+### Current State Problems
+
+| Issue | Location | Problem |
+|-------|----------|---------|
+| **Duplicate Enums** | `API/Models/Enums.cs` + `Core/Entities/Enums.cs` | Same enums defined twice |
+| **Mixed Models** | `API/Models/WebHotelier/` | Contains both API response models AND business logic |
+| **PartyItem duplication** | `PartyItem` (WebHotelier) vs `PartyItemDB` | Two similar classes, one depends on the other |
+| **DB Models in API** | `API/Models/DB/` | Should be in separate data layer |
+| **Contracts reference API models** | `SingleAvailabilityResponse` uses `BaseWebHotelierResponse` | Tight coupling |
+| **Empty Infrastructure** | `TravelBridge.Infrastructure/` | Created but not used |
+| **Repository in API** | `API/Repositories/` | Should be in Infrastructure |
+| **Services in API** | All services still in API | Should be in Infrastructure |
+
+### Dependency Issues Found
+
+```
+API/Contracts/SingleAvailabilityResponse.cs 
+  → depends on API/Models/WebHotelier/BaseWebHotelierResponse
+  → depends on API/Models/WebHotelier/PartyItem
+  → depends on API/Helpers/General
+
+API/Models/DB/PartyItemDB.cs
+  → depends on API/Models/WebHotelier/PartyItem (cross-concern dependency!)
+```
+
+---
+
+## 📋 Questions Before Planning
+
+1. **New Database Project?**
+   - **Option A**: Create `TravelBridge.Data` (DbContext, Migrations, DB Models, Repositories)
+   - **Option B**: Use existing `TravelBridge.Infrastructure` for all data + external services
+   
+   **My recommendation**: Option B - Use Infrastructure for everything (cleaner, standard pattern)
+
+2. **Enum Strategy?**
+   - Keep ONE source of truth in `TravelBridge.Core/Entities/Enums.cs`
+   - Remove duplicates from API
+   - Add any missing enums to Core
+
+3. **WebHotelier Models Strategy?**
+   - These are **external API response models** - they should stay close to the integration code
+   - Move them to `Infrastructure/Integrations/WebHotelier/Models/`
+
+4. **Contracts Cleanup?**
+   - The current `API/Contracts/` contains WebHotelier-specific response models
+   - True contracts (shared DTOs) should be provider-agnostic
+   - Move WebHotelier-specific ones to Infrastructure
+
+5. **PartyItem Issue?**
+   - Create a **shared base** in Core: `PartyInfo` (adults, children)
+   - `PartyItem` (WebHotelier) extends or maps from it
+   - `PartyItemDB` (DB) maps from the shared base
+
+---
+
+## 🏗️ Proposed Target Architecture
+
+```
+TravelBridge/
+├── TravelBridge.Core/                    # Pure domain (NO external dependencies)
+│   ├── Entities/
+│   │   ├── EntityBase.cs
+│   │   ├── Enums.cs                      # ALL enums (single source)
+│   │   ├── ReservationEntity.cs
+│   │   └── PartyInfo.cs                  # NEW: Shared party model
+│   ├── Interfaces/
+│   │   ├── IHotelProvider.cs
+│   │   ├── IPaymentProvider.cs
+│   │   ├── IEmailService.cs
+│   │   ├── IReservationRepository.cs
+│   │   └── IPricingService.cs
+│   └── Services/
+│       └── PricingConfig.cs
+│
+├── TravelBridge.Infrastructure/          # Data + External integrations
+│   ├── Data/
+│   │   ├── AppDbContext.cs               # MOVE from API
+│   │   ├── Migrations/                   # MOVE from API
+│   │   ├── Models/                       # MOVE from API/Models/DB
+│   │   │   ├── BaseModel.cs
+│   │   │   ├── Reservation.cs
+│   │   │   ├── Customer.cs
+│   │   │   ├── Payment.cs
+│   │   │   ├── ReservationRate.cs
+│   │   │   ├── Coupon.cs
+│   │   │   ├── PartyItemDB.cs
+│   │   │   └── ...
+│   │   └── Repositories/
+│   │       └── ReservationsRepository.cs # MOVE from API
+│   │
+│   ├── Integrations/
+│   │   ├── WebHotelier/
+│   │   │   ├── WebHotelierPropertiesService.cs
+│   │   │   ├── Models/                   # MOVE WebHotelier-specific models
+│   │   │   │   ├── PartyItem.cs
+│   │   │   │   ├── BaseWebHotelierResponse.cs
+│   │   │   │   ├── PropertiesResponse.cs
+│   │   │   │   └── ...
+│   │   │   └── Contracts/                # WebHotelier-specific DTOs
+│   │   │       ├── SingleAvailabilityData.cs
+│   │   │       └── ...
+│   │   ├── Viva/
+│   │   │   ├── VivaService.cs
+│   │   │   ├── VivaAuthService.cs
+│   │   │   └── Models/
+│   │   ├── MapBox/
+│   │   │   └── MapBoxService.cs
+│   │   └── HereMaps/
+│   │       └── HereMapsService.cs
+│   │
+│   └── Email/
+│       └── SmtpEmailSender.cs
+│
+├── TravelBridge.Contracts/               # Shared, provider-agnostic DTOs
+│   ├── Requests/
+│   │   └── AvailabilityRequests.cs       # Keep (provider-agnostic)
+│   └── Responses/
+│       └── AvailabilityResponses.cs      # Keep (provider-agnostic)
+│
+├── TravelBridge.API/                     # Thin API layer
+│   ├── Endpoints/
+│   ├── Middleware/
+│   ├── Helpers/
+│   │   ├── Extensions/
+│   │   └── Converters/
+│   ├── Models/
+│   │   └── Apis/                         # API configuration options only
+│   │       ├── WebHotelierApiOptions.cs
+│   │       ├── VivaApiOptions.cs
+│   │       └── ...
+│   └── Program.cs
+│
+└── TravelBridge.Tests/
+```
+
+---
+
+## ❓ Questions for You
+
+1. **Do you want to proceed with this structure?** Or would you prefer a `TravelBridge.Data` project separate from `TravelBridge.Infrastructure`?
+
+2. **Breaking changes tolerance**: Moving all these files will require updating many `using` statements. Are you okay with this being a larger refactoring?
+
+3. **The existing `API/Contracts/` files** (SingleAvailabilityResponse, CheckoutResponse, etc.) - they're tightly coupled to WebHotelier. Should we:
+   - **Option A**: Move them to `Infrastructure/Integrations/WebHotelier/Contracts/`
+   - **Option B**: Keep them in API but rename to make the coupling clear
+
+4. **Migration strategy**: Should we do this in one big step or incrementally (e.g., first DB stuff, then services, then models)?
+
+Let me know your preferences and I'll create a detailed execution plan!

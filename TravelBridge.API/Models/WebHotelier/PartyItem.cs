@@ -1,6 +1,4 @@
 using System.Text.Json.Serialization;
-using System.Text.RegularExpressions;
-using TravelBridge.API.Helpers;
 
 namespace TravelBridge.API.Models.WebHotelier
 {

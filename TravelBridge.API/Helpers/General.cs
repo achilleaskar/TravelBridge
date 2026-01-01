@@ -1,8 +1,7 @@
 using System.Runtime.InteropServices;
 using System.Text.Json;
 using TravelBridge.API.Contracts;
-using TravelBridge.API.Models.DB;
-using TravelBridge.API.Models.WebHotelier;
+using TravelBridge.API.Models.Apis;
 
 namespace TravelBridge.API.Helpers
 {
@@ -125,7 +124,7 @@ namespace TravelBridge.API.Helpers
             {
                 return [];
             }
-            decimal PricePerc = 0.95m;
+            decimal PricePerc = PricingConfig.SpecialHotelPriceMultiplier;
             decimal extraDiscPer = 1m;
             decimal extraDisc = 0m;
             if (hotelCodes.Contains(code))
@@ -143,7 +142,7 @@ namespace TravelBridge.API.Helpers
 
             foreach (var alt in source)
             {
-                var minMargin = alt.NetPrice * 10 / 100;
+                var minMargin = alt.NetPrice * PricingConfig.MinimumMarginDecimal;
                 if (alt.MinPrice - alt.NetPrice < minMargin || (alt.MinPrice - alt.NetPrice) < minMargin || alt.MinPrice == 0)
                 {
                     alt.MinPrice = decimal.Floor(((alt.NetPrice + minMargin) * PricePerc * extraDiscPer) - extraDisc);

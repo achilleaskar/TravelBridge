@@ -1,7 +1,6 @@
-using System;
-using System.Runtime.InteropServices;
 using TravelBridge.API.Contracts;
 using TravelBridge.API.Models;
+using TravelBridge.API.Models.Apis;
 using TravelBridge.API.Models.WebHotelier;
 
 namespace TravelBridge.API.Helpers.Extensions
@@ -17,7 +16,7 @@ namespace TravelBridge.API.Helpers.Extensions
             {
                 return 0;
             }
-            var minMargin = minRate.Price.Value * 10 / 100;
+            var minMargin = minRate.Price.Value * PricingConfig.MinimumMarginDecimal;
             if (minRate.Margin == null || minRate.Margin < minMargin)
             {
                 minprice = minRate.Price.Value + minMargin;
@@ -47,7 +46,7 @@ namespace TravelBridge.API.Helpers.Extensions
                 salePrice = minRate.Retail.TotalPrice + minRate.Retail.Discount;
             }
 
-            var minMargin = minRate.Pricing.TotalPrice * 10 / 100;
+            var minMargin = minRate.Pricing.TotalPrice * PricingConfig.MinimumMarginDecimal;
             if (minRate.Pricing.Margin < minMargin || minRate.Retail == null)
             {
                 return minRate.Pricing.TotalPrice + minMargin;

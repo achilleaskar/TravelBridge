@@ -1,5 +1,6 @@
 using System.Text.Json.Serialization;
 using TravelBridge.API.Helpers.Converters;
+using TravelBridge.API.Models.Apis;
 using TravelBridge.API.Models.WebHotelier;
 
 namespace TravelBridge.API.Contracts
@@ -89,7 +90,7 @@ namespace TravelBridge.API.Contracts
 
         internal decimal GetTotalPrice(string code, decimal disc, Models.CouponType couponType)
         {
-            decimal PricePerc = 0.95m;
+            decimal PricePerc = PricingConfig.SpecialHotelPriceMultiplier;
             decimal extraDiscPer = 1m;
             decimal extraDisc = 0m;
 
@@ -108,7 +109,7 @@ namespace TravelBridge.API.Contracts
                 }
             }
 
-            var minMargin = Pricing.TotalPrice * 10 / 100;
+            var minMargin = Pricing.TotalPrice * PricingConfig.MinimumMarginDecimal;
             if (Pricing.Margin < minMargin || (Retail.TotalPrice - Pricing.TotalPrice) < minMargin || Retail == null || Retail.TotalPrice == 0)
             {
                 totalPrice = decimal.Floor(((Pricing.TotalPrice + minMargin) * PricePerc * extraDiscPer) - extraDisc);
@@ -233,6 +234,11 @@ namespace TravelBridge.API.Contracts
         public decimal retail { get; set; }
         //public int discount { get; set; }
         //public string currency { get; set; }
+
+        /// <summary>
+        /// Minimum stay - can be int or string from WebHotelier API
+        /// </summary>
+        [JsonConverter(typeof(StringOrIntJsonConverter))]
         public int min_stay { get; set; }
         //public string rm_name { get; set; }
         //public string rate_name { get; set; }

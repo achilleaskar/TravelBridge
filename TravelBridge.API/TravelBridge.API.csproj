@@ -9,6 +9,11 @@
 		<PublishAot>true</PublishAot>-->
 	</PropertyGroup>
 
+	<!-- Allow test project to access internal members -->
+	<ItemGroup>
+		<InternalsVisibleTo Include="TravelBridge.Tests" />
+	</ItemGroup>
+
 	<ItemGroup>
 	  <None Remove="Resources\BookingConfirmationEmailTemplate.html" />
 	</ItemGroup>
@@ -23,6 +28,7 @@
 	</ItemGroup>
 
 	<ItemGroup>
+	  <PackageReference Include="AspNetCore.HealthChecks.MySql" Version="9.0.0" />
 	  <PackageReference Include="Microsoft.AspNetCore.OpenApi" Version="9.0.3" />
 	  <PackageReference Include="Microsoft.AspNetCore.ResponseCompression" Version="2.3.0" />
 	  <PackageReference Include="Microsoft.EntityFrameworkCore" Version="9.0.3" />
@@ -30,12 +36,25 @@
 	    <PrivateAssets>all</PrivateAssets>
 	    <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
 	  </PackageReference>
+	  <PackageReference Include="Microsoft.Extensions.Http.Polly" Version="9.0.4" />
 	  <PackageReference Include="Pomelo.EntityFrameworkCore.MySql" Version="9.0.0-preview.3.efcore.9.0.0" />
 	  <PackageReference Include="Serilog.AspNetCore" Version="9.0.0" />
 	  <PackageReference Include="Serilog.Sinks.File" Version="7.0.0" />
 	  <PackageReference Include="Swashbuckle.AspNetCore" Version="8.0.0" />
 	  <PackageReference Include="Swashbuckle.AspNetCore.Annotations" Version="8.0.0" />
 	  <PackageReference Include="Swashbuckle.AspNetCore.Swagger" Version="8.0.0" />
+	</ItemGroup>
+
+	<ItemGroup>
+	  <ProjectReference Include="..\TravelBridge.Core\TravelBridge.Core.csproj" />
+	  <ProjectReference Include="..\TravelBridge.Infrastructure\TravelBridge.Infrastructure.csproj" />
+	  <ProjectReference Include="..\TravelBridge.Contracts\TravelBridge.Contracts.csproj" />
+	</ItemGroup>
+
+	<ItemGroup>
+	  <Folder Include="Models\ExternalModels\" />
+	  <Folder Include="Models\WebHotelier\Contracts\" />
+	  <Folder Include="Services\ExternalServices\" />
 	</ItemGroup>
 
 </Project>

@@ -10,8 +10,8 @@ using TravelBridge.API.Models;
 using TravelBridge.API.Models.Plugin.AutoComplete;
 using TravelBridge.API.Models.Plugin.Filters;
 using TravelBridge.API.Models.Plugin.Search;
-using TravelBridge.API.Services.ExternalServices;
 using TravelBridge.API.Services.WebHotelier;
+using TravelBridge.Infrastructure.Integrations.ExternalServices;
 
 namespace TravelBridge.API.Endpoints
 {
@@ -571,10 +571,19 @@ namespace TravelBridge.API.Endpoints
             var locationsTask = mapBoxService.GetLocations(searchQuery, "el");
             await Task.WhenAll(hotelsTask, locationsTask);
 
+            // Map Infrastructure LocationAutoCompleteResult to API AutoCompleteLocation
+            var locations = locationsTask.Result.Select(l => new AutoCompleteLocation(
+                l.Name,
+                l.Region,
+                l.Id,
+                l.CountryCode,
+                AutoCompleteType.location
+            ));
+
             return new AutoCompleteResponse
             {
                 Hotels = [.. hotelsTask.Result],
-                Locations = [.. locationsTask.Result]
+                Locations = [.. locations]
             };
         }
 

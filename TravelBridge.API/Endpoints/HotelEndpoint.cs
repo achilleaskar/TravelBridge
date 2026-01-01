@@ -124,7 +124,7 @@ namespace TravelBridge.API.Endpoints
 
             var availTask = webHotelierPropertiesService.GetHotelAvailabilityAsync(availReq, parsedCheckin,reservationsRepository);
             var hotelTask = webHotelierPropertiesService.GetHotelInfo(hotelInfo[1]);
-            Task.WaitAll(availTask, hotelTask);
+            await Task.WhenAll(availTask, hotelTask);
 
             SingleAvailabilityResponse? availRes = await availTask;
             HotelInfoResponse? hotelRes = await hotelTask;
