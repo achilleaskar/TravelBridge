@@ -1,8 +1,7 @@
 using TravelBridge.API.Contracts;
 using TravelBridge.API.Helpers;
 using TravelBridge.API.Models;
-using TravelBridge.Core.Services;
-using TravelBridge.Core.Interfaces;
+using TravelBridge.API.Models.Apis;
 using System.Text.Json;
 
 namespace TravelBridge.Tests
@@ -245,64 +244,6 @@ namespace TravelBridge.Tests
             // Assert
             Assert.NotNull(result);
             Assert.Equal(0, result.min_stay);
-        }
-
-        #endregion
-
-        #region Core Models Tests
-
-        [Fact]
-        public void ProviderHotelSearchResult_CanBeCreated()
-        {
-            // Arrange & Act
-            var result = new ProviderHotelSearchResult
-            {
-                Id = "1-VAROSVILL",
-                Code = "VAROSVILL",
-                ProviderId = 1,
-                Name = "Varos Village Hotel",
-                Location = "Lemnos",
-                CountryCode = "GR",
-                PropertyType = "Hotel"
-            };
-
-            // Assert
-            Assert.Equal("1-VAROSVILL", result.Id);
-            Assert.Equal("VAROSVILL", result.Code);
-            Assert.Equal(1, result.ProviderId);
-            Assert.Equal("Varos Village Hotel", result.Name);
-        }
-
-        [Fact]
-        public void ProviderHotelDetails_CanBeCreated()
-        {
-            // Arrange & Act
-            var details = new ProviderHotelDetails
-            {
-                Code = "VAROSVILL",
-                Name = "Varos Village Hotel",
-                Description = "A beautiful hotel",
-                Rating = 4,
-                PropertyType = "Hotel",
-                Location = new ProviderHotelLocation
-                {
-                    Latitude = 39.87m,
-                    Longitude = 25.06m,
-                    Name = "Lemnos",
-                    CountryCode = "GR"
-                },
-                Operation = new ProviderHotelOperation
-                {
-                    CheckInTime = "14:00",
-                    CheckOutTime = "11:00"
-                }
-            };
-
-            // Assert
-            Assert.Equal("VAROSVILL", details.Code);
-            Assert.Equal(4, details.Rating);
-            Assert.NotNull(details.Location);
-            Assert.Equal("14:00", details.Operation?.CheckInTime);
         }
 
         #endregion

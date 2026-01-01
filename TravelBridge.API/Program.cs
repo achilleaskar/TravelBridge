@@ -9,15 +9,13 @@ using Serilog;
 using System.Threading.RateLimiting;
 using TravelBridge.API.DataBase;
 using TravelBridge.API.Endpoints;
-using TravelBridge.API.Helpers.Extensions;
 using TravelBridge.API.Middleware;
 using TravelBridge.API.Models.Apis;
 using TravelBridge.API.Repositories;
 using TravelBridge.API.Services;
+using TravelBridge.API.Services.ExternalServices;
 using TravelBridge.API.Services.Viva;
 using TravelBridge.API.Services.WebHotelier;
-using TravelBridge.Core.Interfaces;
-using TravelBridge.Infrastructure.Integrations.ExternalServices;
 
 var builder = WebApplication.CreateSlimBuilder(args);
 string? connectionString = builder.Configuration.GetConnectionString("MariaDBConnection");
@@ -128,26 +126,30 @@ static IAsyncPolicy<HttpResponseMessage> GetVivaRetryPolicy()
 // Bind Pricing options
 builder.Services.Configure<PricingOptions>(builder.Configuration.GetSection("Pricing"));
 
-// Bind HereMapsApi section to Infrastructure options
-builder.Services.Configure<HereMapsOptions>(builder.Configuration.GetSection("HereMapsApi"));
+// Bind HereMapsApi section to HereMapsApiOptions
+builder.Services.Configure<HereMapsApiOptions>(builder.Configuration.GetSection("HereMapsApi"));
+// Register HttpClient with BaseAddress from configuration
 builder.Services.AddHttpClient("HereMapsApi", (sp, client) =>
 {
-    var options = sp.GetRequiredService<IOptions<HereMapsOptions>>().Value;
+    var options = sp.GetRequiredService<IOptions<HereMapsApiOptions>>().Value;
     client.BaseAddress = new Uri(options.BaseUrl);
 })
 .AddPolicyHandler(GetStandardRetryPolicy());
 
-// Bind MapBox section to Infrastructure options
-builder.Services.Configure<MapBoxOptions>(builder.Configuration.GetSection("MapBoxApi"));
+// Bind MapBox section to MapBoxApiOptions
+builder.Services.Configure<MapBoxApiOptions>(builder.Configuration.GetSection("MapBoxApi"));
+// Register HttpClient with BaseAddress from configuration
 builder.Services.AddHttpClient("MapBoxApi", (sp, client) =>
 {
-    var options = sp.GetRequiredService<IOptions<MapBoxOptions>>().Value;
+    var options = sp.GetRequiredService<IOptions<MapBoxApiOptions>>().Value;
     client.BaseAddress = new Uri(options.BaseUrl);
 })
 .AddPolicyHandler(GetStandardRetryPolicy());
 
-// Bind Viva section
+// Bind Viva section to VivaApiOptions
 builder.Services.Configure<VivaApiOptions>(builder.Configuration.GetSection("VivaApi"));
+
+// Register HttpClient with BaseAddress from configuration (1 retry for payments)
 builder.Services.AddHttpClient("VivaApi", (sp, client) =>
 {
     var options = sp.GetRequiredService<IOptions<VivaApiOptions>>().Value;
@@ -155,8 +157,10 @@ builder.Services.AddHttpClient("VivaApi", (sp, client) =>
 })
 .AddPolicyHandler(GetVivaRetryPolicy());
 
+
 // Bind WebHotelierApi options
 builder.Services.Configure<WebHotelierApiOptions>(builder.Configuration.GetSection("WebHotelierApi"));
+// Configure HttpClient with Basic Authentication (3 retries)
 builder.Services.AddHttpClient("WebHotelierApi", (sp, client) =>
 {
     var options = sp.GetRequiredService<IOptions<WebHotelierApiOptions>>().Value;
@@ -171,38 +175,18 @@ builder.Services.AddHttpClient("WebHotelierApi", (sp, client) =>
 .AddPolicyHandler(GetStandardRetryPolicy());
 
 #endregion HttpClients
-
-#region Service Registration
-
-// Email service
-builder.Services.AddSingleton<SmtpEmailSender>();
-builder.Services.AddSingleton<IEmailService>(sp => sp.GetRequiredService<SmtpEmailSender>());
-
-// Pricing service
-builder.Services.AddSingleton<IPricingService, PricingService>();
-
-// External services (Infrastructure - Maps)
+builder.Services.AddSingleton<SmtpEmailSender, SmtpEmailSender>();
 builder.Services.AddScoped<HereMapsService>();
 builder.Services.AddScoped<MapBoxService>();
-
-// WebHotelier Application Service (orchestrates booking, availability, email)
 builder.Services.AddScoped<WebHotelierPropertiesService>();
-builder.Services.AddScoped<IHotelProvider>(sp => sp.GetRequiredService<WebHotelierPropertiesService>());
-
-// Viva Payment Application Service
-builder.Services.AddScoped<VivaService>();
-builder.Services.AddScoped<IPaymentProvider>(sp => sp.GetRequiredService<VivaService>());
-builder.Services.AddScoped<VivaAuthService>();
-
-// Repository
-builder.Services.AddScoped<ReservationsRepository>();
-
-// Endpoint handlers
 builder.Services.AddScoped<SearchPluginEndpoints>();
 builder.Services.AddScoped<HotelEndpoint>();
 builder.Services.AddScoped<ReservationEndpoints>();
 
-#endregion Service Registration
+builder.Services.AddScoped<VivaService>();
+builder.Services.AddScoped<VivaAuthService>();
+
+builder.Services.AddScoped<ReservationsRepository>();
 
 // Add health checks
 builder.Services.AddHealthChecks()
@@ -228,8 +212,9 @@ builder.Services.AddRateLimiter(options =>
     options.RejectionStatusCode = StatusCodes.Status429TooManyRequests;
 });
 
-#region App Configuration
+#region Register Endpoint Groups
 
+// Register your service
 var app = builder.Build();
 
 // Initialize static pricing configuration
@@ -299,10 +284,22 @@ app.Use(async (context, next) =>
     }
 });
 
-// Map all API endpoints using extension method
-app.MapApiEndpoints();
+// Create a scope for the DI container
+using (var scope = app.Services.CreateScope())
+{
+    var serviceProvider = scope.ServiceProvider;
 
-#endregion App Configuration
+    var searchEndpoints = serviceProvider.GetRequiredService<SearchPluginEndpoints>();
+    searchEndpoints.MapEndpoints(app);
+
+    var hotelEndpoints = serviceProvider.GetRequiredService<HotelEndpoint>();
+    hotelEndpoints.MapEndpoints(app);
+
+    var reservationEndpoints = serviceProvider.GetRequiredService<ReservationEndpoints>();
+    reservationEndpoints.MapEndpoints(app);
+}
+
+#endregion Register Endpoint Groups
 
 // Map health check endpoint
 app.MapHealthChecks("/health");

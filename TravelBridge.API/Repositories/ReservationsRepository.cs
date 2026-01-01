@@ -3,7 +3,6 @@ using TravelBridge.API.Contracts;
 using TravelBridge.API.DataBase;
 using TravelBridge.API.Models;
 using TravelBridge.API.Models.DB;
-using TravelBridge.Infrastructure.Integrations.Viva;
 
 namespace TravelBridge.API.Repositories
 {
@@ -16,7 +15,7 @@ namespace TravelBridge.API.Repositories
             this.db = db;
         }
 
-        internal async Task CreateTemporaryExternalReservation(CheckoutResponse res, Endpoints.ReservationEndpoints.BookingRequest pars, DateTime parsedCheckin, DateTime parsedCheckOut, VivaPaymentRequest payment, string orderCode, string party)
+        internal async Task CreateTemporaryExternalReservation(CheckoutResponse res, Endpoints.ReservationEndpoints.BookingRequest pars, DateTime parsedCheckin, DateTime parsedCheckOut, Models.ExternalModels.VivaPaymentRequest payment, string orderCode, string party)
         {
             try
             {

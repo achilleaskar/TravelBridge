@@ -7,7 +7,6 @@ using TravelBridge.API.Contracts;
 using TravelBridge.API.Models.Apis;
 using TravelBridge.API.Services;
 using TravelBridge.API.Services.WebHotelier;
-using TravelBridge.Core.Services;
 
 namespace TravelBridge.Tests
 {

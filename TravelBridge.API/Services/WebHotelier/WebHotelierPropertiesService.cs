@@ -13,12 +13,11 @@ using TravelBridge.API.Models.DB;
 using TravelBridge.API.Models.Plugin.AutoComplete;
 using TravelBridge.API.Models.WebHotelier;
 using TravelBridge.API.Repositories;
-using TravelBridge.Core.Interfaces;
 using static TravelBridge.API.Helpers.General;
 
 namespace TravelBridge.API.Services.WebHotelier
 {
-    public class WebHotelierPropertiesService : IHotelProvider
+    public class WebHotelierPropertiesService
     {
         private readonly HttpClient _httpClient;
         private readonly SmtpEmailSender _mailSender;
@@ -27,85 +26,6 @@ namespace TravelBridge.API.Services.WebHotelier
 
         // Cache duration for hotel and room info (6 hours)
         private static readonly TimeSpan CacheDuration = TimeSpan.FromHours(6);
-
-        #region IHotelProvider Implementation
-
-        public int ProviderId => (int)Provider.WebHotelier;
-        public string ProviderName => "WebHotelier";
-
-        public async Task<IEnumerable<ProviderHotelSearchResult>> SearchPropertiesAsync(string propertyName, CancellationToken cancellationToken = default)
-        {
-            var results = await SearchPropertyAsync(propertyName);
-            return results.Select(h => new ProviderHotelSearchResult
-            {
-                Id = h.Id,
-                Code = h.OrId,
-                ProviderId = ProviderId,
-                Name = h.Name,
-                Location = h.Location,
-                CountryCode = h.CountryCode,
-                PropertyType = h.OriginalType
-            });
-        }
-
-        public async Task<IReadOnlyList<ProviderHotelSearchResult>> GetAllPropertiesAsync(CancellationToken cancellationToken = default)
-        {
-            var results = await GetAllPropertiesAsync();
-            return results.Select(h => new ProviderHotelSearchResult
-            {
-                Id = h.Id,
-                Code = h.OrId,
-                ProviderId = ProviderId,
-                Name = h.Name,
-                Location = h.Location,
-                CountryCode = h.CountryCode,
-                PropertyType = h.OriginalType
-            }).ToList();
-        }
-
-        public async Task<ProviderHotelDetails> GetHotelInfoAsync(string hotelCode, CancellationToken cancellationToken = default)
-        {
-            var result = await GetHotelInfo(hotelCode);
-            return new ProviderHotelDetails
-            {
-                Code = result.Data.Code,
-                Name = result.Data.Name,
-                Description = result.Data.Description,
-                Rating = result.Data.Rating,
-                PropertyType = result.Data.Type,
-                Location = result.Data.Location != null ? new ProviderHotelLocation
-                {
-                    Latitude = (decimal)result.Data.Location.Latitude,
-                    Longitude = (decimal)result.Data.Location.Longitude,
-                    Name = result.Data.Location.Name,
-                    Address = result.Data.Location.Address,
-                    ZipCode = result.Data.Location.Zip,
-                    CountryCode = result.Data.Location.Country
-                } : null,
-                Operation = result.Data.Operation != null ? new ProviderHotelOperation
-                {
-                    CheckInTime = result.Data.Operation.CheckinTime,
-                    CheckOutTime = result.Data.Operation.CheckoutTime
-                } : null,
-                Photos = result.Data.LargePhotos
-            };
-        }
-
-        public async Task<ProviderRoomDetails> GetRoomInfoAsync(string hotelCode, string roomCode, CancellationToken cancellationToken = default)
-        {
-            var result = await GetRoomInfo(hotelCode, roomCode);
-            return new ProviderRoomDetails
-            {
-                Code = roomCode,
-                Name = result.Data.Name,
-                Description = result.Data.Description,
-                MaxOccupancy = result.Data.Capacity?.MaxPersons,
-                Photos = result.Data.LargePhotos,
-                Amenities = result.Data.Amenities
-            };
-        }
-
-        #endregion IHotelProvider Implementation
 
         public WebHotelierPropertiesService(
             IHttpClientFactory httpClientFactory, 
