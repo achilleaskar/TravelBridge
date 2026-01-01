@@ -1,0 +1,295 @@
+Below is a **PR#1-ready** blueprint: the **exact project/reference graph**, the **exact `dotnet` commands** to generate + add them to the existing `TravelBridge.sln`, the **csproj `ProjectReference` blocks**, and a **Phase 1–3 “first PR checklist”** that Copilot can follow in one controlled pass.
+
+> Scope note (to keep PR1 safe): we will **fully extract Geo + Viva** into provider projects and create Application/Contracts.
+> WebHotelier will get its **own project + DI registration + options model moved** in PR1, but we **won’t move `WebHotelierPropertiesService` yet** (it’s entangled with pricing/business rules + repo + email). That keeps PR1 low-risk while still setting the structure correctly.
+
+---
+
+## A) Target project graph for PR1
+
+### Projects
+
+* `TravelBridge.API` (existing web host)
+* `TravelBridge.Contracts` (DTOs + plugin models + enums)
+* `TravelBridge.Application` (ports + DI registration + resolvers; can be minimal in PR1)
+* `TravelBridge.Payments.Viva` (moved Viva services + options + request models)
+* `TravelBridge.Geo.Mapbox` (moved MapBox service + options + response models)
+* `TravelBridge.Geo.HereMaps` (moved HereMaps service + options + response models)
+* `TravelBridge.Providers.WebHotelier` (**PR1: options + httpclient DI only**)
+
+### References (exact)
+
+* `TravelBridge.API` → references **all** the above
+* `TravelBridge.Application` → references `TravelBridge.Contracts`
+* `TravelBridge.Geo.Mapbox` → references `TravelBridge.Contracts`
+* `TravelBridge.Geo.HereMaps` → references `TravelBridge.Contracts`
+* `TravelBridge.Payments.Viva` → no project refs required (in PR1)
+* `TravelBridge.Providers.WebHotelier` → no project refs required (in PR1)
+
+---
+
+## B) Exact commands to create projects + add to `TravelBridge.sln`
+
+Run at repo root (where `TravelBridge.sln` lives):
+
+```bash
+# 1) Create new projects (net9.0)
+dotnet new classlib -n TravelBridge.Contracts -f net9.0
+dotnet new classlib -n TravelBridge.Application -f net9.0
+dotnet new classlib -n TravelBridge.Payments.Viva -f net9.0
+dotnet new classlib -n TravelBridge.Geo.Mapbox -f net9.0
+dotnet new classlib -n TravelBridge.Geo.HereMaps -f net9.0
+dotnet new classlib -n TravelBridge.Providers.WebHotelier -f net9.0
+
+# 2) Add them to the existing solution
+dotnet sln TravelBridge.sln add TravelBridge.Contracts/TravelBridge.Contracts.csproj
+dotnet sln TravelBridge.sln add TravelBridge.Application/TravelBridge.Application.csproj
+dotnet sln TravelBridge.sln add TravelBridge.Payments.Viva/TravelBridge.Payments.Viva.csproj
+dotnet sln TravelBridge.sln add TravelBridge.Geo.Mapbox/TravelBridge.Geo.Mapbox.csproj
+dotnet sln TravelBridge.sln add TravelBridge.Geo.HereMaps/TravelBridge.Geo.HereMaps.csproj
+dotnet sln TravelBridge.sln add TravelBridge.Providers.WebHotelier/TravelBridge.Providers.WebHotelier.csproj
+
+# 3) Add project references
+
+# API references everything
+dotnet add TravelBridge.API/TravelBridge.API.csproj reference TravelBridge.Contracts/TravelBridge.Contracts.csproj
+dotnet add TravelBridge.API/TravelBridge.API.csproj reference TravelBridge.Application/TravelBridge.Application.csproj
+dotnet add TravelBridge.API/TravelBridge.API.csproj reference TravelBridge.Payments.Viva/TravelBridge.Payments.Viva.csproj
+dotnet add TravelBridge.API/TravelBridge.API.csproj reference TravelBridge.Geo.Mapbox/TravelBridge.Geo.Mapbox.csproj
+dotnet add TravelBridge.API/TravelBridge.API.csproj reference TravelBridge.Geo.HereMaps/TravelBridge.Geo.HereMaps.csproj
+dotnet add TravelBridge.API/TravelBridge.API.csproj reference TravelBridge.Providers.WebHotelier/TravelBridge.Providers.WebHotelier.csproj
+
+# Application references Contracts
+dotnet add TravelBridge.Application/TravelBridge.Application.csproj reference TravelBridge.Contracts/TravelBridge.Contracts.csproj
+
+# Geo providers reference Contracts (they return AutoComplete models)
+dotnet add TravelBridge.Geo.Mapbox/TravelBridge.Geo.Mapbox.csproj reference TravelBridge.Contracts/TravelBridge.Contracts.csproj
+dotnet add TravelBridge.Geo.HereMaps/TravelBridge.Geo.HereMaps.csproj reference TravelBridge.Contracts/TravelBridge.Contracts.csproj
+```
+
+---
+
+## C) Exact csproj “reference blocks” (what Copilot should ensure exists)
+
+### 1) `TravelBridge.API/TravelBridge.API.csproj` (add this ItemGroup)
+
+```xml
+<ItemGroup>
+  <ProjectReference Include="..\TravelBridge.Contracts\TravelBridge.Contracts.csproj" />
+  <ProjectReference Include="..\TravelBridge.Application\TravelBridge.Application.csproj" />
+  <ProjectReference Include="..\TravelBridge.Payments.Viva\TravelBridge.Payments.Viva.csproj" />
+  <ProjectReference Include="..\TravelBridge.Geo.Mapbox\TravelBridge.Geo.Mapbox.csproj" />
+  <ProjectReference Include="..\TravelBridge.Geo.HereMaps\TravelBridge.Geo.HereMaps.csproj" />
+  <ProjectReference Include="..\TravelBridge.Providers.WebHotelier\TravelBridge.Providers.WebHotelier.csproj" />
+</ItemGroup>
+```
+
+### 2) `TravelBridge.Application/TravelBridge.Application.csproj`
+
+Use ASP.NET shared framework to avoid NuGet version juggling (safe for PR1):
+
+```xml
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFramework>net9.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <FrameworkReference Include="Microsoft.AspNetCore.App" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\TravelBridge.Contracts\TravelBridge.Contracts.csproj" />
+  </ItemGroup>
+</Project>
+```
+
+### 3) `TravelBridge.Geo.Mapbox/TravelBridge.Geo.Mapbox.csproj`
+
+```xml
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFramework>net9.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <FrameworkReference Include="Microsoft.AspNetCore.App" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\TravelBridge.Contracts\TravelBridge.Contracts.csproj" />
+  </ItemGroup>
+</Project>
+```
+
+### 4) `TravelBridge.Geo.HereMaps/TravelBridge.Geo.HereMaps.csproj`
+
+(same pattern as Mapbox)
+
+### 5) `TravelBridge.Payments.Viva/TravelBridge.Payments.Viva.csproj`
+
+```xml
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFramework>net9.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <FrameworkReference Include="Microsoft.AspNetCore.App" />
+  </ItemGroup>
+</Project>
+```
+
+### 6) `TravelBridge.Providers.WebHotelier/TravelBridge.Providers.WebHotelier.csproj`
+
+```xml
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFramework>net9.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <FrameworkReference Include="Microsoft.AspNetCore.App" />
+  </ItemGroup>
+</Project>
+```
+
+### 7) `TravelBridge.Contracts/TravelBridge.Contracts.csproj`
+
+(no framework ref needed)
+
+```xml
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFramework>net9.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+  </PropertyGroup>
+</Project>
+```
+
+---
+
+## D) PR1 “Phase 1–3” checklist (Copilot-safe, build stays green)
+
+### Phase 1 — Create projects & references
+
+* [ ] Run the commands in section **B**
+* [ ] Confirm solution builds *before moving files*:
+
+  * [ ] `dotnet build TravelBridge.sln`
+
+### Phase 2 — Extract shared DTOs/models into `TravelBridge.Contracts`
+
+Move these files **from** `TravelBridge.API` **to** `TravelBridge.Contracts` **keeping the namespaces unchanged** (do not mass-rename namespaces in PR1):
+
+* [ ] Move folder: `TravelBridge.API/Contracts/*` → `TravelBridge.Contracts/Contracts/*`
+* [ ] Move folder: `TravelBridge.API/Models/Plugin/*` → `TravelBridge.Contracts/Models/Plugin/*`
+* [ ] Move file: `TravelBridge.API/Models/Enums.cs` → `TravelBridge.Contracts/Models/Enums.cs`
+  (keep namespace `TravelBridge.API.Models` as-is)
+
+Then:
+
+* [ ] Fix any compile errors by adding missing `using` or adjusting project refs (but **do not** rename DTO shapes)
+* [ ] `dotnet build`
+
+### Phase 3 — Extract Viva + Mapbox + HereMaps into provider projects
+
+#### Viva
+
+* [ ] Move files:
+
+  * `TravelBridge.API/Services/Viva/*` → `TravelBridge.Payments.Viva/Services/Viva/*`
+  * `TravelBridge.API/Models/Apis/VivaApiOptions.cs` → `TravelBridge.Payments.Viva/Models/Apis/VivaApiOptions.cs`
+  * `TravelBridge.API/Models/ExternalModels/VivaPaymentRequest.cs` → `TravelBridge.Payments.Viva/Models/ExternalModels/VivaPaymentRequest.cs`
+  * keep namespaces unchanged to reduce churn
+
+* [ ] Add `ServiceCollectionExtensions.AddVivaPayments(IConfiguration)` inside `TravelBridge.Payments.Viva`
+
+* [ ] Update `Program.cs`:
+
+  * remove Viva `Configure<VivaApiOptions>` + `AddHttpClient("VivaApi"... )` block
+  * remove `AddScoped<VivaService>(); AddScoped<VivaAuthService>();`
+  * replace with `builder.Services.AddVivaPayments(builder.Configuration);`
+
+> Recommended tiny safety tweak now (so we don’t need DB models in Viva project):
+
+* [ ] Change `VivaService.ValidatePayment` to accept `expectedAmount` (and `expectedPartialAmount` optional) instead of `Reservation`.
+* [ ] Update `ReservationEndpoints.ConfirmPayment` accordingly (pass `reservation.TotalAmount` and `reservation.PartialPayment?.prepayAmount`)
+
+#### Mapbox
+
+* [ ] Move files:
+
+  * `TravelBridge.API/Services/ExternalServices/MapBoxService.cs` → `TravelBridge.Geo.Mapbox/Services/ExternalServices/MapBoxService.cs`
+  * `TravelBridge.API/Models/Apis/MapBoxApiOptions.cs` → `TravelBridge.Geo.Mapbox/Models/Apis/MapBoxApiOptions.cs`
+  * `TravelBridge.API/Models/ExternalModels/MapBoxAutoCompleteResponse.cs` → `TravelBridge.Geo.Mapbox/Models/ExternalModels/MapBoxAutoCompleteResponse.cs`
+
+* [ ] Add `AddMapboxGeo(IConfiguration)` in `TravelBridge.Geo.Mapbox`
+
+* [ ] Update `Program.cs` to call it and remove the old HttpClient config + service registration
+
+#### HereMaps
+
+* [ ] Move files:
+
+  * `TravelBridge.API/Services/ExternalServices/HereMapsService.cs` → `TravelBridge.Geo.HereMaps/Services/ExternalServices/HereMapsService.cs`
+  * `TravelBridge.API/Models/Apis/HereApiOptions.cs` → `TravelBridge.Geo.HereMaps/Models/Apis/HereApiOptions.cs`
+  * `TravelBridge.API/Models/ExternalModels/HereMapsAutoCompleteResponse.cs` → `TravelBridge.Geo.HereMaps/Models/ExternalModels/HereMapsAutoCompleteResponse.cs`
+
+* [ ] Add `AddHereMapsGeo(IConfiguration)` in `TravelBridge.Geo.HereMaps`
+
+* [ ] Update `Program.cs` to call it and remove the old HttpClient config + service registration
+
+#### WebHotelier (PR1 minimal: DI + options only)
+
+* [ ] Move file:
+
+  * `TravelBridge.API/Models/Apis/WebHotelierApiOptions.cs` → `TravelBridge.Providers.WebHotelier/Models/Apis/WebHotelierApiOptions.cs`
+* [ ] Add `AddWebHotelier(IConfiguration)` in `TravelBridge.Providers.WebHotelier` that registers:
+
+  * `services.Configure<WebHotelierApiOptions>(...)`
+  * `services.AddHttpClient("WebHotelierApi", ...)` with base url + basic auth
+* [ ] Update `Program.cs` to use `AddWebHotelier` and remove the old WebHotelier HttpClient config block
+  (leave `WebHotelierPropertiesService` in API for PR1)
+
+Finally:
+
+* [ ] `dotnet build TravelBridge.sln`
+* [ ] Run the API quickly (local) and hit 1–2 endpoints to verify startup DI works.
+
+---
+
+## E) One Copilot prompt for “PR1 controlled pass”
+
+Copy/paste this into Copilot Chat:
+
+```text
+Do PR1 refactor per COPILOT_REFACTOR_GUIDE.md but scope to:
+- Create projects: TravelBridge.Contracts, TravelBridge.Application, TravelBridge.Payments.Viva, TravelBridge.Geo.Mapbox, TravelBridge.Geo.HereMaps, TravelBridge.Providers.WebHotelier
+- Add them to TravelBridge.sln and add project references exactly as specified.
+- Move DTOs/models to TravelBridge.Contracts: TravelBridge.API/Contracts/*, TravelBridge.API/Models/Plugin/*, TravelBridge.API/Models/Enums.cs (keep namespaces unchanged).
+- Move Viva + Geo services/options/models into their projects and add DI extension methods:
+  AddVivaPayments, AddMapboxGeo, AddHereMapsGeo
+- For WebHotelier project in PR1: move only WebHotelierApiOptions and implement AddWebHotelier to configure HttpClient; keep WebHotelierPropertiesService in API.
+- Update Program.cs to call these extension methods and remove old provider-specific HttpClient config blocks.
+- IMPORTANT: keep build green after each major move; run dotnet build and fix immediately.
+- Also change VivaService.ValidatePayment to accept expected amounts instead of Reservation to avoid referencing DB models.
+```
+
+---
+
+If you want, I can also give you the **exact skeleton code** for:
+
+* `AddVivaPayments`, `AddMapboxGeo`, `AddHereMapsGeo`, `AddWebHotelier`
+* the updated `Program.cs` showing the final clean DI calls
+
+…so Copilot can mostly “copy exact code” instead of inventing.
