@@ -191,7 +191,7 @@ namespace TravelBridge.API.Endpoints
 
             try
             {
-                if (await viva.ValidatePayment(pay.OrderCode, pay.Tid, reservation) && await repo.UpdatePaymentSucceed(pay.OrderCode, pay.Tid))
+                if (await viva.ValidatePayment(pay.OrderCode, pay.Tid, reservation.TotalAmount,reservation.PartialPayment.prepayAmount) && await repo.UpdatePaymentSucceed(pay.OrderCode, pay.Tid))
                 {
                     await webHotelierPropertiesService.CreateBooking(reservation, repo);
 
