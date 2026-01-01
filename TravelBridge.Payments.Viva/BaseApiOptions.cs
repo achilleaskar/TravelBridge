@@ -1,4 +1,4 @@
-﻿namespace TravelBridge.API.Models.Apis
+namespace TravelBridge.Payments.Viva
 {
     public class BaseApiOptions
     {

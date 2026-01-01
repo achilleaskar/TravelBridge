@@ -1,5 +1,4 @@
 using Microsoft.EntityFrameworkCore;
-using TravelBridge.API.Migrations;
 using TravelBridge.API.Models.DB;
 
 namespace TravelBridge.API.DataBase

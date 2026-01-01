@@ -1,17 +1,15 @@
 using System.Globalization;
 using System.Reflection;
-using System.Text.Json;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.OpenApi.Models;
 using TravelBridge.API.Contracts;
 using TravelBridge.API.Helpers;
 using TravelBridge.API.Helpers.Extensions;
-using TravelBridge.API.Models;
-using TravelBridge.API.Models.Plugin.AutoComplete;
-using TravelBridge.API.Models.Plugin.Filters;
-using TravelBridge.API.Models.Plugin.Search;
 using TravelBridge.API.Services.ExternalServices;
-using TravelBridge.API.Services.WebHotelier;
+using TravelBridge.Contracts.Plugin.AutoComplete;
+using TravelBridge.Contracts.Plugin.Filters;
+using TravelBridge.Providers.WebHotelier;
+using TravelBridge.API.Models.WebHotelier;
 
 namespace TravelBridge.API.Endpoints
 {
@@ -95,7 +93,8 @@ namespace TravelBridge.API.Endpoints
 
         private async Task<object> GetAllProperties(string? type)
         {
-            var Hotels = await webHotelierPropertiesService.GetAllPropertiesAsync();
+            var whHotels = await webHotelierPropertiesService.GetAllPropertiesFromWebHotelierAsync();
+            var Hotels = whHotels.MapToAutoCompleteHotels().ToList();
 
             foreach (var h in Hotels)
             {
@@ -198,7 +197,22 @@ namespace TravelBridge.API.Endpoints
 
             int skip = (pars.page ?? 0) * 20;
 
-            var res = await webHotelierPropertiesService.GetAvailabilityAsync(req)
+            WHAvailabilityRequest whReq = new()
+            {
+                CheckIn = req.CheckIn,
+                CheckOut = req.CheckOut,
+                Party = req.Party,
+                Lat = req.Lat,
+                Lon = req.Lon,
+                BottomLeftLatitude = req.BottomLeftLatitude,
+                TopRightLatitude = req.TopRightLatitude,
+                BottomLeftLongitude = req.BottomLeftLongitude,
+                TopRightLongitude = req.TopRightLongitude,
+                SortBy = req.SortBy,
+                SortOrder = req.SortOrder
+            };
+
+            var res = await webHotelierPropertiesService.GetAvailabilityAsync(whReq)
                 ?? new PluginSearchResponse
                 {
                     Results = new List<WebHotel>(),
@@ -567,14 +581,14 @@ namespace TravelBridge.API.Endpoints
                 };
             }
 
-            var hotelsTask = webHotelierPropertiesService.SearchPropertyAsync(searchQuery);
+            var hotelsTask = webHotelierPropertiesService.SearchPropertyFromWebHotelierAsync(searchQuery);
             var locationsTask = mapBoxService.GetLocations(searchQuery, "el");
             await Task.WhenAll(hotelsTask, locationsTask);
 
             return new AutoCompleteResponse
             {
-                Hotels = [.. hotelsTask.Result],
-                Locations = [.. locationsTask.Result]
+                Hotels = hotelsTask.Result.MapToAutoCompleteHotels(),
+                Locations = locationsTask.Result.MapToAutoCompleteLocations()
             };
         }
 

@@ -2,11 +2,11 @@ using System.Net.Http.Headers;
 using System.Text.Json;
 using System.Text;
 using Microsoft.Extensions.Options;
-using TravelBridge.API.Models.Apis;
-using TravelBridge.API.Models.ExternalModels;
 using Microsoft.AspNetCore.Http;
+using TravelBridge.Payments.Viva.Models.Apis;
+using TravelBridge.Payments.Viva.Models.ExternalModels;
 
-namespace TravelBridge.API.Services.Viva
+namespace TravelBridge.Payments.Viva.Services.Viva
 {
     public class VivaService
     {

@@ -1,5 +1,4 @@
-using TravelBridge.API.Models.Plugin.Filters;
-using TravelBridge.API.Models.WebHotelier;
+using TravelBridge.Contracts.Plugin.Filters;
 
 namespace TravelBridge.API.Contracts
 {

@@ -1,13 +1,49 @@
-using System;
-using System.Runtime.InteropServices;
 using TravelBridge.API.Contracts;
-using TravelBridge.API.Models;
-using TravelBridge.API.Models.WebHotelier;
+using TravelBridge.API.Models.ExternalModels;
+using TravelBridge.Contracts.Plugin.AutoComplete;
+using TravelBridge.Contracts.Common.Policies;
+using TravelBridge.Contracts.Common.Board;
+using TravelBridge.Providers.WebHotelier.Models.Responses;
+using TravelBridge.API.Contracts.DTOs;
+using TravelBridge.Contracts.Models.Hotels;
+using TravelBridge.Contracts.Common;
+using TravelBridge.Contracts.Common.Payments;
 
 namespace TravelBridge.API.Helpers.Extensions
 {
     public static class MappingExtensions
     {
+        /// <summary>
+        /// Maps WebHotelier Hotel array to AutoCompleteHotel collection
+        /// </summary>
+        public static IEnumerable<AutoCompleteHotel> MapToAutoCompleteHotels(this Hotel[] hotels)
+        {
+            //TODO: maybe use custom hotel codes stored in our DB for security and privacy
+            return hotels.Select(hotel =>
+                new AutoCompleteHotel(
+                    hotel.code,
+                    Provider.WebHotelier,
+                    hotel.name,
+                    hotel.location.name,
+                    hotel.location.country,
+                    hotel.type));
+        }
+
+        /// <summary>
+        /// Maps MapBox Feature list to AutoCompleteLocation collection
+        /// </summary>
+        public static IEnumerable<AutoCompleteLocation> MapToAutoCompleteLocations(this List<Feature> features)
+        {
+            return features
+                .Where(f => f.Properties != null && (f.Properties.FeatureType == null || !f.Properties.FeatureType.Equals("country")))
+                .Select(f => new AutoCompleteLocation(
+                    f.Properties.NamePreferred,
+                    f.Properties.Context.Region?.Name ?? "",
+                    $"[{string.Join(",", f.Properties.Bbox)}]-{f.Properties.Coordinates.Latitude}-{f.Properties.Coordinates.Longitude}",
+                    f.Properties.Context.Country.CountryCode,
+                    AutoCompleteType.location));
+        }
+
         public static decimal GetMinPrice(this WebHotel h, out decimal salePrice)
         {
             salePrice = 0;
@@ -127,7 +163,51 @@ namespace TravelBridge.API.Helpers.Extensions
                 }
             };
         }
+        public static decimal GetSalePrice(this HotelRate rate)
+        {
+            decimal saleprice = rate.Retail.TotalPrice + rate.Retail.Discount;
+            if (saleprice > rate.totalPrice + 5)
+            {
+                return saleprice;
+            }
+            return 0;
+        }
 
+        public static decimal GetTotalPrice(this HotelRate rate, string code, decimal disc, TravelBridge.Contracts.Common.CouponType couponType)
+        {
+            decimal PricePerc = 0.95m;
+            decimal extraDiscPer = 1m;
+            decimal extraDisc = 0m;
+
+            if (Helpers.General.hotelCodes.Contains(code))
+            {
+                PricePerc = 1m;
+            }
+
+            if (disc != 0m)
+            {
+                if (couponType == TravelBridge.Contracts.Common.CouponType.percentage)
+                    extraDiscPer = 1 - disc;
+                else if (couponType == TravelBridge.Contracts.Common.CouponType.flat)
+                {
+                    extraDisc = disc;
+                }
+            }
+
+            var minMargin = rate.Pricing.TotalPrice * 10 / 100;
+            if (rate.Pricing.Margin < minMargin || (rate.Retail.TotalPrice - rate.Pricing.TotalPrice) < minMargin || rate.Retail == null || rate.Retail.TotalPrice == 0)
+            {
+                rate.totalPrice = decimal.Floor(((rate.Pricing.TotalPrice + minMargin) * PricePerc * extraDiscPer) - extraDisc);
+                rate.ProfitPerc = decimal.Round(rate.totalPrice / rate.Pricing.TotalPrice, 6);
+                return rate.totalPrice;
+            }
+            else
+            {
+                rate.totalPrice = decimal.Floor((rate.Retail.TotalPrice * PricePerc * extraDiscPer) - extraDisc);
+                rate.ProfitPerc = decimal.Round(rate.totalPrice / rate.Pricing.TotalPrice, 6);
+                return rate.totalPrice;
+            }
+        }
 
 
         private static Dictionary<string, List<string>> categoryMapping = new()

@@ -1,5 +1,4 @@
 using System.ComponentModel.DataAnnotations;
-using TravelBridge.API.Models.WebHotelier;
 
 namespace TravelBridge.API.Models.DB
 {

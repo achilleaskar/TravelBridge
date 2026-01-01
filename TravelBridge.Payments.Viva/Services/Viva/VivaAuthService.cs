@@ -1,9 +1,9 @@
 using System.Text.Json;
 using System.Text;
-using TravelBridge.API.Models.Apis;
 using Microsoft.Extensions.Options;
+using TravelBridge.Payments.Viva.Models.Apis;
 
-namespace TravelBridge.API.Services.Viva
+namespace TravelBridge.Payments.Viva.Services.Viva
 {
     public class VivaAuthService
     {

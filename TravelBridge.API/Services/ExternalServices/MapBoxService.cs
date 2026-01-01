@@ -1,9 +1,6 @@
-using System.Text.Json;
 using Microsoft.Extensions.Options;
-using TravelBridge.API.Models;
 using TravelBridge.API.Models.Apis;
 using TravelBridge.API.Models.ExternalModels;
-using TravelBridge.API.Models.Plugin.AutoComplete;
 
 namespace TravelBridge.API.Services.ExternalServices
 {
@@ -19,7 +16,11 @@ namespace TravelBridge.API.Services.ExternalServices
         private readonly string _apiKey;
         private readonly int limit = 10;
 
-        public async Task<IEnumerable<AutoCompleteLocation>> GetLocations(string? param, string? lang)
+        /// <summary>
+        /// Get location features from MapBox API
+        /// </summary>
+        /// <returns>List of Feature objects from MapBox API</returns>
+        public async Task<List<Feature>> GetLocations(string? param, string? lang)
         {
             if (param is not null)
             {
@@ -44,7 +45,7 @@ namespace TravelBridge.API.Services.ExternalServices
                     var result = JsonSerializer.Deserialize<MapBoxAutoCompleteResponse>(jsonString);
 
                     if (result?.Features?.Count > 0)
-                        return MapResultsToLocations(result.Features);
+                        return result.Features;
                 }
                 catch (HttpRequestException ex)
                 {
@@ -56,18 +57,6 @@ namespace TravelBridge.API.Services.ExternalServices
                 }
             }
             return [];
-        }
-
-        private static IEnumerable<AutoCompleteLocation> MapResultsToLocations(List<Feature> features)
-        {
-            return features
-                .Where(f => f.Properties != null && (f.Properties.FeatureType == null || !f.Properties.FeatureType.Equals("country")))
-                .Select(f => new AutoCompleteLocation(
-                    f.Properties.NamePreferred,
-                    f.Properties.Context.Region?.Name ?? "",
-                    $"[{string.Join(",", f.Properties.Bbox)}]-{f.Properties.Coordinates.Latitude}-{f.Properties.Coordinates.Longitude}",
-                    f.Properties.Context.Country.CountryCode,
-                    AutoCompleteType.location));
         }
     }
 }
