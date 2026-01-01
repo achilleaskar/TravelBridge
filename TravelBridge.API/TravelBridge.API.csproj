@@ -38,4 +38,13 @@
 	  <PackageReference Include="Swashbuckle.AspNetCore.Swagger" Version="8.0.0" />
 	</ItemGroup>
 
+	<ItemGroup>
+	  <ProjectReference Include="..\TravelBridge.Application\TravelBridge.Application.csproj" />
+	  <ProjectReference Include="..\TravelBridge.Providers.WebHotelier\TravelBridge.Providers.WebHotelier.csproj" />
+	  <ProjectReference Include="..\TravelBridge.Payments.Viva\TravelBridge.Payments.Viva.csproj" />
+	  <ProjectReference Include="..\TravelBridge.Geo.Mapbox\TravelBridge.Geo.Mapbox.csproj" />
+	  <ProjectReference Include="..\TravelBridge.Geo.HereMaps\TravelBridge.Geo.HereMaps.csproj" />
+	  <ProjectReference Include="..\TravelBridge.Contracts\TravelBridge.Contracts.csproj" />
+	</ItemGroup>
+
 </Project>
