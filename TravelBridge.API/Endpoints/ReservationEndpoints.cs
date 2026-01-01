@@ -1,17 +1,19 @@
 using System.Globalization;
 using System.Reflection;
-using System.Text.Json;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.OpenApi.Models;
 using TravelBridge.API.Contracts;
 using TravelBridge.API.Helpers;
-using TravelBridge.API.Models;
-using TravelBridge.API.Models.ExternalModels;
-using TravelBridge.API.Models.WebHotelier;
 using TravelBridge.API.Repositories;
-using TravelBridge.API.Services.Viva;
-using TravelBridge.API.Services.WebHotelier;
 using static TravelBridge.API.Helpers.General;
+using TravelBridge.Payments.Viva.Models.ExternalModels;
+using TravelBridge.Payments.Viva.Services.Viva;
+using TravelBridge.Providers.WebHotelier;
+using TravelBridge.API.Models.WebHotelier;
+using TravelBridge.Contracts.Contracts.Responses;
+using TravelBridge.Providers.WebHotelier.Models.Responses;
+using TravelBridge.API.Contracts.DTOs;
+using TravelBridge.Contracts.Models.Hotels;
 
 namespace TravelBridge.API.Endpoints
 {
@@ -175,7 +177,7 @@ namespace TravelBridge.API.Endpoints
             return res;
         }
 
-        private async Task<SuccessfullPaymentResponse> ConfirmPayment(PaymentInfo pay, ReservationsRepository repo, VivaService viva)
+        private async Task<SuccessfulPaymentResponse> ConfirmPayment(PaymentInfo pay, ReservationsRepository repo, VivaService viva)
         {
             if (string.IsNullOrWhiteSpace(pay.OrderCode) || string.IsNullOrWhiteSpace(pay.Tid))
             {
@@ -185,7 +187,7 @@ namespace TravelBridge.API.Endpoints
             var reservation = await repo.GetReservationBasicDataByPaymentCode(pay.OrderCode);
             if (reservation == null)
             {
-                return new SuccessfullPaymentResponse(error: "Reservation not found", "NO_RES");
+                return new SuccessfulPaymentResponse(error: "Reservation not found", "NO_RES");
             }
             //await webHotelierPropertiesService.SendConfirmationEmail();
 
@@ -195,10 +197,10 @@ namespace TravelBridge.API.Endpoints
                 {
                     await webHotelierPropertiesService.CreateBooking(reservation, repo);
 
-                    return new SuccessfullPaymentResponse
+                    return new SuccessfulPaymentResponse
                     {
-                        SuccessfullPayment = true,
-                        Data = new DataSucess
+                        SuccessfulPayment = true,
+                        Data = new DataSuccess
                         {
                             CheckIn = reservation.CheckIn.ToString("dd/MM/yyyy"),
                             CheckOut = reservation.CheckOut.ToString("dd/MM/yyyy"),
@@ -209,12 +211,12 @@ namespace TravelBridge.API.Endpoints
                 }
                 else
                 {
-                    return new SuccessfullPaymentResponse(error: $"Υπήρξε πρόβλημα με την πληρωμή της κράτησής σας με αριθμό {reservation.Id}, παρακαλώ επικοινωνήστε μαζί μας.", "RES_ERROR");
+                    return new SuccessfulPaymentResponse(error: $"Υπήρξε πρόβλημα με την πληρωμή της κράτησής σας με αριθμό {reservation.Id}, παρακαλώ επικοινωνήστε μαζί μας.", "RES_ERROR");
                 }
             }
             catch (Exception ex)
             {
-                return new SuccessfullPaymentResponse(error: $"Υπήρξε πρόβλημα με την πληρωμή της κράτησής σας με αριθμό {reservation.Id}, παρακαλώ επικοινωνήστε μαζί μας.", "RES_ERROR");
+                return new SuccessfulPaymentResponse(error: $"Υπήρξε πρόβλημα με την πληρωμή της κράτησής σας με αριθμό {reservation.Id}, παρακαλώ επικοινωνήστε μαζί μας.", "RES_ERROR");
             }
         }
 
@@ -269,16 +271,16 @@ namespace TravelBridge.API.Endpoints
 
             #endregion Param Validation
 
-            SingleAvailabilityRequest availReq = new()
+            WHSingleAvailabilityRequest whReq = new()
             {
+                PropertyId = hotelInfo[1],
                 CheckIn = parsedCheckin.ToString("yyyy-MM-dd"),
                 CheckOut = parsedCheckOut.ToString("yyyy-MM-dd"),
-                Party = party,
-                PropertyId = hotelInfo[1]
+                Party = party
             };
 
             var hotelTask = webHotelierPropertiesService.GetHotelInfo(hotelInfo[1]);
-            var availTask = webHotelierPropertiesService.GetHotelAvailabilityAsync(availReq, parsedCheckin, repo, SelectedRates, pars.couponCode);
+            var availTask = webHotelierPropertiesService.GetHotelAvailabilityAsync(whReq, parsedCheckin, repo, SelectedRates, pars.couponCode);
             Task.WaitAll(availTask, hotelTask);
 
             SingleAvailabilityResponse? availRes = await availTask;
@@ -422,15 +424,16 @@ namespace TravelBridge.API.Endpoints
 
             #endregion Param Validation
 
-            SingleAvailabilityRequest availReq = new()
+            WHSingleAvailabilityRequest whReq = new()
             {
+                PropertyId = hotelInfo[1],
                 CheckIn = parsedCheckin.ToString("yyyy-MM-dd"),
                 CheckOut = parsedCheckOut.ToString("yyyy-MM-dd"),
-                PropertyId = hotelInfo[1]
+                Party = null
             };
 
             var hotelTask = webHotelierPropertiesService.GetHotelInfo(hotelInfo[1]);
-            var availTask = webHotelierPropertiesService.GetHotelAvailabilityAsync(availReq, parsedCheckin, repo, Selectedrates, reservationRequest.couponCode);
+            var availTask = webHotelierPropertiesService.GetHotelAvailabilityAsync(whReq, parsedCheckin, repo, Selectedrates,reservationRequest.couponCode);
             Task.WaitAll(availTask, hotelTask);
 
             SingleAvailabilityResponse? availRes = await availTask;
@@ -569,16 +572,16 @@ namespace TravelBridge.API.Endpoints
 
             #endregion Param Validation
 
-            SingleAvailabilityRequest availReq = new()
+            WHSingleAvailabilityRequest whReq = new()
             {
+                PropertyId = hotelInfo[1],
                 CheckIn = parsedCheckin.ToString("yyyy-MM-dd"),
                 CheckOut = parsedCheckOut.ToString("yyyy-MM-dd"),
-                //Party = party,
-                PropertyId = hotelInfo[1]
+                Party = null
             };
 
             var hotelTask = webHotelierPropertiesService.GetHotelInfo(hotelInfo[1]);
-            var availTask = webHotelierPropertiesService.GetHotelAvailabilityAsync(availReq, parsedCheckin, null, Selectedrates);
+            var availTask = webHotelierPropertiesService.GetHotelAvailabilityAsync(whReq, parsedCheckin, null, Selectedrates);
             Task.WaitAll(availTask, hotelTask);
 
             SingleAvailabilityResponse? availRes = await availTask;

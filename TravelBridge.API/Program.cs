@@ -10,8 +10,9 @@ using TravelBridge.API.Models.Apis;
 using TravelBridge.API.Repositories;
 using TravelBridge.API.Services;
 using TravelBridge.API.Services.ExternalServices;
-using TravelBridge.API.Services.Viva;
-using TravelBridge.API.Services.WebHotelier;
+using TravelBridge.Payments.Viva.Models.Apis;
+using TravelBridge.Payments.Viva.Services.Viva;
+using TravelBridge.API.Models.WebHotelier;
 
 var builder = WebApplication.CreateSlimBuilder(args);
 string? connectionString = builder.Configuration.GetConnectionString("MariaDBConnection");

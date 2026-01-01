@@ -1,8 +1,4 @@
-using System.Runtime.InteropServices;
-using System.Text.Json;
-using TravelBridge.API.Contracts;
-using TravelBridge.API.Models.DB;
-using TravelBridge.API.Models.WebHotelier;
+using TravelBridge.Contracts.Common.Payments;
 
 namespace TravelBridge.API.Helpers
 {
@@ -119,7 +115,7 @@ namespace TravelBridge.API.Helpers
             "VOULSUITES"
         };
 
-        public static List<Alternative> GetFinalPrice(this List<Alternative> source, decimal disc, string code, Models.CouponType couponType)
+        public static List<Alternative> GetFinalPrice(this List<Alternative> source, decimal disc, string code, TravelBridge.Contracts.Common.CouponType couponType)
         {
             if (source.IsNullOrEmpty())
             {
@@ -135,9 +131,9 @@ namespace TravelBridge.API.Helpers
 
             if (disc != 0m)
             {
-                if (couponType == Models.CouponType.flat)
+                if (couponType == TravelBridge.Contracts.Common.CouponType.flat)
                     extraDisc = disc;
-                else if (couponType == Models.CouponType.percentage)
+                else if (couponType == TravelBridge.Contracts.Common.CouponType.percentage)
                     extraDiscPer = 1 - disc;
             }
 

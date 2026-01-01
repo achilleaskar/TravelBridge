@@ -4,7 +4,11 @@ using TravelBridge.API.Contracts;
 using TravelBridge.API.Helpers;
 using TravelBridge.API.Helpers.Extensions;
 using TravelBridge.API.Repositories;
-using TravelBridge.API.Services.WebHotelier;
+using TravelBridge.Providers.WebHotelier;
+using TravelBridge.API.Models.WebHotelier;
+using TravelBridge.Providers.WebHotelier.Models.Responses;
+using TravelBridge.Contracts.Contracts.Responses;
+using TravelBridge.Contracts.Models.Hotels;
 
 namespace TravelBridge.API.Endpoints
 {
@@ -64,7 +68,7 @@ namespace TravelBridge.API.Endpoints
             }
 
             var res = await webHotelierPropertiesService.GetHotelInfo(hotelInfo[1]);
-            res.Data.Provider = Models.Provider.WebHotelier;
+            res.Data.Provider = TravelBridge.Contracts.Common.Provider.WebHotelier;
             return res;
         }
 
@@ -114,15 +118,15 @@ namespace TravelBridge.API.Endpoints
 
             #endregion Params Validation
 
-            SingleAvailabilityRequest availReq = new()
+            WHSingleAvailabilityRequest whReq = new()
             {
+                PropertyId = hotelInfo[1],
                 CheckIn = parsedCheckin.ToString("yyyy-MM-dd"),
                 CheckOut = parsedCheckOut.ToString("yyyy-MM-dd"),
-                Party = party,
-                PropertyId = hotelInfo[1]
+                Party = party
             };
 
-            var availTask = webHotelierPropertiesService.GetHotelAvailabilityAsync(availReq, parsedCheckin,reservationsRepository);
+            var availTask = webHotelierPropertiesService.GetHotelAvailabilityAsync(whReq, parsedCheckin, reservationsRepository);
             var hotelTask = webHotelierPropertiesService.GetHotelInfo(hotelInfo[1]);
             Task.WaitAll(availTask, hotelTask);
 
@@ -131,10 +135,10 @@ namespace TravelBridge.API.Endpoints
 
             if (availRes.Data != null)
             {
-                availRes.Data.Provider = Models.Provider.WebHotelier;
+                availRes.Data.Provider = TravelBridge.Contracts.Common.Provider.WebHotelier;
             }
 
-            hotelRes.Data.Provider = Models.Provider.WebHotelier;
+            hotelRes.Data.Provider = TravelBridge.Contracts.Common.Provider.WebHotelier;
 
             int nights = (parsedCheckOut - parsedCheckin).Days;
 
@@ -174,7 +178,7 @@ namespace TravelBridge.API.Endpoints
                   </ul>";
         }
 
-        private async Task<RoomInfoRespone> GetRoomInfo(string hotelId, string roomId)
+        private async Task<RoomInfoResponse> GetRoomInfo(string hotelId, string roomId)
         {
             if (string.IsNullOrWhiteSpace(hotelId))
             {
@@ -237,18 +241,19 @@ namespace TravelBridge.API.Endpoints
 
             #endregion Params Validation
 
-            SingleAvailabilityRequest req = new()
+            WHSingleAvailabilityRequest whReq = new()
             {
+                PropertyId = hotelInfo[1],
                 CheckIn = parsedCheckin.ToString("yyyy-MM-dd"),
                 CheckOut = parsedCheckOut.ToString("yyyy-MM-dd"),
-                Party = party,
-                PropertyId = hotelInfo[1]
+                Party = party
             };
 
-            var res = await webHotelierPropertiesService.GetHotelAvailabilityAsync(req, parsedCheckin, reservationsRepository);
+            var res = await webHotelierPropertiesService.GetHotelAvailabilityAsync(whReq, parsedCheckin, reservationsRepository);
+            
             if (res.Data != null)
             {
-                res.Data.Provider = Models.Provider.WebHotelier;
+                res.Data.Provider = TravelBridge.Contracts.Common.Provider.WebHotelier;
             }
 
             return res;

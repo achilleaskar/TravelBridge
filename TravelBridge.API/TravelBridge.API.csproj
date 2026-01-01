@@ -47,4 +47,10 @@
 	  <ProjectReference Include="..\TravelBridge.Contracts\TravelBridge.Contracts.csproj" />
 	</ItemGroup>
 
+	<ItemGroup>
+	  <Folder Include="Contracts\Helpers\" />
+	  <Folder Include="Services\WebHotelier\" />
+	  <Folder Include="Services\WebHotelier\Models\" />
+	</ItemGroup>
+
 </Project>

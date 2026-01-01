@@ -1,4 +1,4 @@
-namespace TravelBridge.API.Models.ExternalModels
+namespace TravelBridge.Payments.Viva.Models.ExternalModels
 {
     public class VivaPaymentRequest
     {

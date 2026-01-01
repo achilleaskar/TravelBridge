@@ -10,4 +10,8 @@
 		<FrameworkReference Include="Microsoft.AspNetCore.App" />
 	</ItemGroup>
 
+	<ItemGroup>
+	  <ProjectReference Include="..\TravelBridge.Contracts\TravelBridge.Contracts.csproj" />
+	</ItemGroup>
+
 </Project>

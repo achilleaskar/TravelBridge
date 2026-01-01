@@ -1,6 +1,3 @@
-﻿using System.Text.Json.Serialization;
-using System.Text.Json;
-
 namespace TravelBridge.API.Helpers.Converters
 {
     public class NullableDateTimeConverter : JsonConverter<DateTime?>

@@ -1,5 +1,3 @@
-using System.Text.Json.Serialization;
-
 namespace TravelBridge.API.Models.ExternalModels
 {
     public class MapBoxAutoCompleteResponse
