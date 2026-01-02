@@ -6,7 +6,6 @@ using Microsoft.OpenApi.Models;
 using Serilog;
 using TravelBridge.API.DataBase;
 using TravelBridge.API.Endpoints;
-using TravelBridge.API.Models.Apis;
 using TravelBridge.API.Repositories;
 using TravelBridge.API.Services;
 using TravelBridge.Geo.Mapbox;
@@ -14,6 +13,7 @@ using TravelBridge.Geo.HereMaps;
 using TravelBridge.Payments.Viva.Models.Apis;
 using TravelBridge.Payments.Viva.Services.Viva;
 using TravelBridge.API.Models.WebHotelier;
+using TravelBridge.Providers.WebHotelier;
 
 var builder = WebApplication.CreateSlimBuilder(args);
 string? connectionString = builder.Configuration.GetConnectionString("MariaDBConnection");
@@ -80,9 +80,10 @@ builder.Services
 
 #region HttpClients
 
-// Register Geo providers using extension methods
+// Register providers using extension methods
 builder.Services.AddHereMaps(builder.Configuration);
 builder.Services.AddMapBox(builder.Configuration);
+builder.Services.AddWebHotelier(builder.Configuration);
 
 // Bind Viva section to VivaApiOptions
 builder.Services.Configure<VivaApiOptions>(builder.Configuration.GetSection("VivaApi"));
@@ -92,22 +93,6 @@ builder.Services.AddHttpClient("VivaApi", (sp, client) =>
 {
     var options = sp.GetRequiredService<IOptions<VivaApiOptions>>().Value;
     client.BaseAddress = new Uri(options.BaseUrl); // Use BaseUrl from appsettings.json
-});
-
-
-// Bind WebHotelierApi options
-builder.Services.Configure<WebHotelierApiOptions>(builder.Configuration.GetSection("WebHotelierApi"));
-// Configure HttpClient with Basic Authentication
-builder.Services.AddHttpClient("WebHotelierApi", (sp, client) =>
-{
-    var options = sp.GetRequiredService<IOptions<WebHotelierApiOptions>>().Value;
-    client.BaseAddress = new Uri(options.BaseUrl);
-    client.DefaultRequestHeaders.Accept.Add(new System.Net.Http.Headers.MediaTypeWithQualityHeaderValue("application/json"));
-    client.DefaultRequestHeaders.Add("Accept-Language", "el");
-
-    // Add Basic Authentication header
-    var credentials = Convert.ToBase64String(System.Text.Encoding.UTF8.GetBytes($"{options.Username}:{options.Password}"));
-    client.DefaultRequestHeaders.Authorization = new System.Net.Http.Headers.AuthenticationHeaderValue("Basic", credentials);
 });
 
 #endregion HttpClients

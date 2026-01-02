@@ -1,5 +1,7 @@
 using System.Text.Json;
 using Microsoft.Extensions.Options;
+using TravelBridge.Contracts.Common;
+using TravelBridge.Contracts.Plugin.AutoComplete;
 
 namespace TravelBridge.Geo.Mapbox;
 
@@ -16,26 +18,27 @@ public class MapBoxService
     }
 
     /// <summary>
-    /// Get location features from MapBox API
+    /// Get location suggestions from MapBox API
     /// </summary>
-    /// <returns>List of Feature objects from MapBox API</returns>
-    public async Task<List<Feature>> GetLocationsAsync(string? param, string? lang)
+    /// <returns>List of AutoCompleteLocation objects</returns>
+    public async Task<IEnumerable<AutoCompleteLocation>> GetLocationsAsync(string? param, string? lang)
     {
         if (param is null)
         {
             return [];
         }
 
+        var language = string.IsNullOrWhiteSpace(lang) ? "el" : lang;
+
         try
         {
-            // Language can be el or en or both for database storing purposes
             var response = await _httpClient.GetAsync(
                 $"search/geocode/v6/forward" +
                 $"?q={Uri.EscapeDataString(param)}" +
                 $"&country=gr,cy" +
                 $"&limit={Limit}" +
                 $"&types=neighborhood,region,country,place,district,locality" +
-                $"&language=el" +
+                $"&language={language}" +
                 $"&autocomplete=true" +
                 $"&access_token={_apiKey}" +
                 $"&permanent=false");
@@ -47,7 +50,7 @@ public class MapBoxService
 
             if (result?.Features?.Count > 0)
             {
-                return result.Features;
+                return MapToAutoCompleteLocations(result.Features);
             }
         }
         catch (HttpRequestException ex)
@@ -56,5 +59,17 @@ public class MapBoxService
         }
 
         return [];
+    }
+
+    private static IEnumerable<AutoCompleteLocation> MapToAutoCompleteLocations(List<Feature> features)
+    {
+        return features
+            .Where(f => f.Properties != null && (f.Properties.FeatureType == null || !f.Properties.FeatureType.Equals("country")))
+            .Select(f => new AutoCompleteLocation(
+                f.Properties.NamePreferred,
+                f.Properties.Context.Region?.Name ?? "",
+                $"[{string.Join(",", f.Properties.Bbox)}]-{f.Properties.Coordinates.Latitude}-{f.Properties.Coordinates.Longitude}",
+                f.Properties.Context.Country.CountryCode,
+                AutoCompleteType.location));
     }
 }

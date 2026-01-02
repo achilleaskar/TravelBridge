@@ -1,5 +1,7 @@
 using System.Text.Json;
 using Microsoft.Extensions.Options;
+using TravelBridge.Contracts.Common;
+using TravelBridge.Contracts.Plugin.AutoComplete;
 
 namespace TravelBridge.Geo.HereMaps;
 
@@ -16,7 +18,11 @@ public class HereMapsService
         _apiKey = options.Value.ApiKey;
     }
 
-    public async Task<IEnumerable<string>> GetLocationsAsync(string? param)
+    /// <summary>
+    /// Get location suggestions from HERE Maps API
+    /// </summary>
+    /// <returns>List of AutoCompleteLocation objects</returns>
+    public async Task<IEnumerable<AutoCompleteLocation>> GetLocationsAsync(string? param)
     {
         if (param is null)
         {
@@ -39,7 +45,7 @@ public class HereMapsService
 
             if (result?.Items.Count > 0)
             {
-                return result.Items.Select(r => r.Address.Label);
+                return MapToAutoCompleteLocations(result.Items);
             }
         }
         catch (HttpRequestException ex)
@@ -48,5 +54,15 @@ public class HereMapsService
         }
 
         return [];
+    }
+
+    private static IEnumerable<AutoCompleteLocation> MapToAutoCompleteLocations(List<Item> items)
+    {
+        return items.Select(item => new AutoCompleteLocation(
+            item.Address.Label,
+            item.Address.State ?? item.Address.County ?? "",
+            "", // HereMaps autocomplete doesn't return bbox/coordinates
+            item.Address.CountryName ?? "GR",
+            AutoCompleteType.location));
     }
 }

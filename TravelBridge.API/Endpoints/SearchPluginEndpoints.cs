@@ -588,7 +588,7 @@ namespace TravelBridge.API.Endpoints
             return new AutoCompleteResponse
             {
                 Hotels = hotelsTask.Result.MapToAutoCompleteHotels(),
-                Locations = locationsTask.Result.MapToAutoCompleteLocations()
+                Locations = locationsTask.Result
             };
         }
 

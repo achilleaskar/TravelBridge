@@ -1,5 +1,4 @@
 using TravelBridge.API.Contracts;
-using TravelBridge.Geo.Mapbox;
 using TravelBridge.Contracts.Plugin.AutoComplete;
 using TravelBridge.Contracts.Common.Policies;
 using TravelBridge.Contracts.Common.Board;
@@ -24,21 +23,6 @@ namespace TravelBridge.API.Helpers.Extensions
                     hotel.location?.name ?? "",
                     hotel.location?.country ?? "",
                     hotel.type));
-        }
-
-        /// <summary>
-        /// Maps MapBox Feature list to AutoCompleteLocation collection
-        /// </summary>
-        public static IEnumerable<AutoCompleteLocation> MapToAutoCompleteLocations(this List<Feature> features)
-        {
-            return features
-                .Where(f => f.Properties != null && (f.Properties.FeatureType == null || !f.Properties.FeatureType.Equals("country")))
-                .Select(f => new AutoCompleteLocation(
-                    f.Properties.NamePreferred,
-                    f.Properties.Context.Region?.Name ?? "",
-                    $"[{string.Join(",", f.Properties.Bbox)}]-{f.Properties.Coordinates.Latitude}-{f.Properties.Coordinates.Longitude}",
-                    f.Properties.Context.Country.CountryCode,
-                    AutoCompleteType.location));
         }
 
         public static decimal GetMinPrice(this WebHotel h, out decimal salePrice)
