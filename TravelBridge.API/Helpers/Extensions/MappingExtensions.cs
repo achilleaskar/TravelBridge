@@ -1,5 +1,5 @@
 using TravelBridge.API.Contracts;
-using TravelBridge.API.Models.ExternalModels;
+using TravelBridge.Geo.Mapbox;
 using TravelBridge.Contracts.Plugin.AutoComplete;
 using TravelBridge.Contracts.Common.Policies;
 using TravelBridge.Contracts.Common.Board;

@@ -1,0 +1,24 @@
+namespace TravelBridge.Geo.HereMaps;
+
+public class HereMapsAutoCompleteResponse
+{
+    public List<Item> Items { get; set; } = [];
+}
+
+public class Item
+{
+    public string Title { get; set; } = null!;
+    public string ResultType { get; set; } = null!;
+    public string LocalityType { get; set; } = null!;
+    public Address Address { get; set; } = null!;
+}
+
+public class Address
+{
+    public string Label { get; set; } = null!;
+    public string CountryName { get; set; } = null!;
+    public string State { get; set; } = null!;
+    public string County { get; set; } = null!;
+    public string City { get; set; } = null!;
+    public string PostalCode { get; set; } = null!;
+}

@@ -3,6 +3,8 @@ using TravelBridge.Contracts.Common.Policies;
 using TravelBridge.Contracts.Models.Hotels;
 using TravelBridge.Contracts.Plugin.AutoComplete;
 using TravelBridge.Providers.WebHotelier.Models.Common;
+using TravelBridge.Providers.WebHotelier.Models.Hotel;
+using TravelBridge.Providers.WebHotelier.Models.Rate;
 using TravelBridge.Providers.WebHotelier.Models.Responses;
 using TravelBridge.Providers.WebHotelier.Models.Room;
 
