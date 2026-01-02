@@ -49,6 +49,8 @@
 
 	<ItemGroup>
 	  <Folder Include="Contracts\Helpers\" />
+	  <Folder Include="Models\ExternalModels\" />
+	  <Folder Include="Services\ExternalServices\" />
 	  <Folder Include="Services\WebHotelier\" />
 	  <Folder Include="Services\WebHotelier\Models\" />
 	</ItemGroup>

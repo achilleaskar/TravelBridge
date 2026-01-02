@@ -9,7 +9,8 @@ using TravelBridge.API.Endpoints;
 using TravelBridge.API.Models.Apis;
 using TravelBridge.API.Repositories;
 using TravelBridge.API.Services;
-using TravelBridge.API.Services.ExternalServices;
+using TravelBridge.Geo.Mapbox;
+using TravelBridge.Geo.HereMaps;
 using TravelBridge.Payments.Viva.Models.Apis;
 using TravelBridge.Payments.Viva.Services.Viva;
 using TravelBridge.API.Models.WebHotelier;
@@ -79,23 +80,9 @@ builder.Services
 
 #region HttpClients
 
-// Bind HereMapsApi section to HereMapsApiOptions
-builder.Services.Configure<HereMapsApiOptions>(builder.Configuration.GetSection("HereMapsApi"));
-// Register HttpClient with BaseAddress from configuration
-builder.Services.AddHttpClient("HereMapsApi", (sp, client) =>
-{
-    var options = sp.GetRequiredService<IOptions<HereMapsApiOptions>>().Value;
-    client.BaseAddress = new Uri(options.BaseUrl); // Use BaseUrl from appsettings.json
-});
-
-// Bind MapBox section to MapBoxApiOptions
-builder.Services.Configure<MapBoxApiOptions>(builder.Configuration.GetSection("MapBoxApi"));
-// Register HttpClient with BaseAddress from configuration
-builder.Services.AddHttpClient("MapBoxApi", (sp, client) =>
-{
-    var options = sp.GetRequiredService<IOptions<MapBoxApiOptions>>().Value;
-    client.BaseAddress = new Uri(options.BaseUrl); // Use BaseUrl from appsettings.json
-});
+// Register Geo providers using extension methods
+builder.Services.AddHereMaps(builder.Configuration);
+builder.Services.AddMapBox(builder.Configuration);
 
 // Bind Viva section to VivaApiOptions
 builder.Services.Configure<VivaApiOptions>(builder.Configuration.GetSection("VivaApi"));
@@ -125,8 +112,6 @@ builder.Services.AddHttpClient("WebHotelierApi", (sp, client) =>
 
 #endregion HttpClients
 builder.Services.AddSingleton<SmtpEmailSender, SmtpEmailSender>();
-builder.Services.AddScoped<HereMapsService>();
-builder.Services.AddScoped<MapBoxService>();
 builder.Services.AddScoped<WebHotelierPropertiesService>();
 builder.Services.AddScoped<SearchPluginEndpoints>();
 builder.Services.AddScoped<HotelEndpoint>();

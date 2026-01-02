@@ -5,7 +5,7 @@ using Microsoft.OpenApi.Models;
 using TravelBridge.API.Contracts;
 using TravelBridge.API.Helpers;
 using TravelBridge.API.Helpers.Extensions;
-using TravelBridge.API.Services.ExternalServices;
+using TravelBridge.Geo.Mapbox;
 using TravelBridge.Contracts.Plugin.AutoComplete;
 using TravelBridge.Contracts.Plugin.Filters;
 using TravelBridge.Providers.WebHotelier;
@@ -582,7 +582,7 @@ namespace TravelBridge.API.Endpoints
             }
 
             var hotelsTask = webHotelierPropertiesService.SearchPropertyFromWebHotelierAsync(searchQuery);
-            var locationsTask = mapBoxService.GetLocations(searchQuery, "el");
+            var locationsTask = mapBoxService.GetLocationsAsync(searchQuery, "el");
             await Task.WhenAll(hotelsTask, locationsTask);
 
             return new AutoCompleteResponse

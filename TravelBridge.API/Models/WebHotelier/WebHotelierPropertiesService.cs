@@ -11,6 +11,8 @@ using TravelBridge.API.Repositories;
 using TravelBridge.API.Services;
 using TravelBridge.Providers.WebHotelier;
 using TravelBridge.Providers.WebHotelier.Models.Common;
+using TravelBridge.Providers.WebHotelier.Models.Hotel;
+using TravelBridge.Providers.WebHotelier.Models.Rate;
 using TravelBridge.Providers.WebHotelier.Models.Responses;
 using static TravelBridge.API.Helpers.General;
 
