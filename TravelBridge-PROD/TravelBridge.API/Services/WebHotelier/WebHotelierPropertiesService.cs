@@ -1,102 +1,128 @@
+using System.Collections.Generic;
 using System.Globalization;
+using System.IO;
+using System.Net;
 using System.Net.Http.Headers;
 using System.Net.Mail;
 using System.Reflection;
+using System.Text.Json;
+using Microsoft.AspNetCore.Mvc.ApplicationModels;
+using Microsoft.EntityFrameworkCore;
 using TravelBridge.API.Contracts;
-using TravelBridge.API.Contracts.DTOs;
-using TravelBridge.API.Helpers;
+using TravelBridge.API.DataBase;
 using TravelBridge.API.Helpers.Extensions;
+using TravelBridge.API.Models;
 using TravelBridge.API.Models.DB;
+using TravelBridge.API.Models.Plugin.AutoComplete;
+using TravelBridge.API.Models.WebHotelier;
 using TravelBridge.API.Repositories;
-using TravelBridge.API.Services;
-using TravelBridge.Providers.WebHotelier;
-using TravelBridge.Providers.WebHotelier.Models.Common;
-using TravelBridge.Providers.WebHotelier.Models.Hotel;
-using TravelBridge.Providers.WebHotelier.Models.Rate;
-using TravelBridge.Providers.WebHotelier.Models.Responses;
+using static System.Runtime.InteropServices.JavaScript.JSType;
 using static TravelBridge.API.Helpers.General;
 
-namespace TravelBridge.API.Models.WebHotelier
+namespace TravelBridge.API.Services.WebHotelier
 {
     public class WebHotelierPropertiesService
     {
-        private readonly WebHotelierClient _whClient;
-        private readonly SmtpEmailSender _mailSender;
+        private readonly HttpClient _httpClient;
 
-        public WebHotelierPropertiesService(WebHotelierClient whClient, SmtpEmailSender mailSender)
+        private readonly SmtpEmailSender _mailSender;
+        public WebHotelierPropertiesService(IHttpClientFactory httpClientFactory, SmtpEmailSender mailSender)
         {
-            _whClient = whClient;
+            _httpClient = httpClientFactory.CreateClient("WebHotelierApi");
             _mailSender = mailSender;
         }
 
-        /// <summary>
-        /// Search for properties by name in WebHotelier
-        /// </summary>
-        /// <returns>Array of WHHotel objects from WebHotelier API</returns>
-        public async Task<WHHotel[]> SearchPropertyFromWebHotelierAsync(string propertyName)
+        public async Task<IEnumerable<AutoCompleteHotel>> SearchPropertyAsync(string propertyName)
         {
             try
             {
-                return await _whClient.SearchPropertiesAsync(propertyName);
+                var response = await _httpClient.GetAsync($"property?name={Uri.EscapeDataString(propertyName)}");
+
+                response.EnsureSuccessStatusCode();
+                var jsonString = await response.Content.ReadAsStringAsync();
+
+                var result = JsonSerializer.Deserialize<PropertiesResponse>(jsonString);
+
+                if (result?.data?.hotels.Length > 0)
+                    return MapResultsToHotels(result.data.hotels);
             }
             catch (HttpRequestException ex)
             {
                 throw new InvalidOperationException(ex.ToString());
             }
+            return [];
         }
 
-        /// <summary>
-        /// Get all properties from WebHotelier
-        /// </summary>
-        /// <returns>Array of WHHotel objects from WebHotelier API</returns>
-        public async Task<WHHotel[]> GetAllPropertiesFromWebHotelierAsync()
+        public async Task<List<AutoCompleteHotel>> GetAllPropertiesAsync()
         {
             try
             {
-                return await _whClient.GetAllPropertiesAsync();
+                var response = await _httpClient.GetAsync($"property");
+
+                response.EnsureSuccessStatusCode();
+                var jsonString = await response.Content.ReadAsStringAsync();
+
+                var result = JsonSerializer.Deserialize<PropertiesResponse>(jsonString);
+
+                if (result?.data?.hotels.Length > 0)
+                    return MapResultsToHotels(result.data.hotels).ToList();
             }
             catch (HttpRequestException ex)
             {
                 throw new InvalidOperationException(ex.ToString());
             }
+            return [];
         }
 
-        public async Task<PluginSearchResponse> GetAvailabilityAsync(WHAvailabilityRequest request)
+        public async Task<PluginSearchResponse> GetAvailabilityAsync(MultiAvailabilityRequest request)
         {
             try
             {
-                List<WHPartyItem> partyList = GetPartyList(request.Party);
+                List<PartyItem> partyList = GetPartyList(request);
 
                 if (partyList.IsNullOrEmpty())
                 {
                     throw new InvalidOperationException($"Error calling WebHotelier API. Invalid parties");
                 }
 
-                Dictionary<WHPartyItem, Task<WHMultiAvailabilityResponse?>> tasks = new();
+                Dictionary<PartyItem, Task<HttpResponseMessage>> tasks = new();
                 foreach (var partyItem in partyList ?? new())
                 {
-                    tasks.Add(partyItem, _whClient.GetAvailabilityAsync(request, partyItem.party!));
+                    tasks.Add(partyItem, _httpClient.GetAsync($"availability?party={partyItem.party}" +
+                           $"&checkin={Uri.EscapeDataString(request.CheckIn)}" +
+                           $"&checkout={Uri.EscapeDataString(request.CheckOut)}" +
+                           $"&lat={Uri.EscapeDataString(request.Lat)}" +
+                           $"&lon={Uri.EscapeDataString(request.Lon)}" +
+                           $"&lat1={Uri.EscapeDataString(request.BottomLeftLatitude)}" +
+                           $"&lat2={Uri.EscapeDataString(request.TopRightLatitude)}" +
+                           $"&lon1={Uri.EscapeDataString(request.BottomLeftLongitude)}" +
+                           $"&lon2={Uri.EscapeDataString(request.TopRightLongitude)}" +
+                           $"&sort_by={Uri.EscapeDataString(request.SortBy)}" +
+                           $"&sort_order={Uri.EscapeDataString(request.SortOrder)}&&payments=1"));
                 }
 
+                // Send GET request
                 await Task.WhenAll(tasks.Values);
 
-                Dictionary<WHPartyItem, WHMultiAvailabilityResponse> respones = new();
+                Dictionary<PartyItem, MultiAvailabilityResponse> respones = new();
 
                 foreach (var task in tasks)
                 {
-                    var res = await task.Value;
+                    var result = task.Value.Result;
+                    result.EnsureSuccessStatusCode();
+                    var jsonString = await result.Content.ReadAsStringAsync();
+                    var res = JsonSerializer.Deserialize<MultiAvailabilityResponse>(jsonString);
                     if (res == null)
                     {
                         return new PluginSearchResponse();
                     }
-                    WHProvider Provider = WHProvider.WebHotelier;
+                    Provider Provider = Provider.WebHotelier;
                     // Deserialize the response JSON
-                    foreach (WHWebHotel hotel in res.Data?.Hotels ?? [])
+                    foreach (WebHotel hotel in res.Data?.Hotels ?? [])
                     {
                         hotel.Id = $"{(int)Provider}-{hotel.Code}";
                         hotel.SearchParty = task.Key;
-                        var contractsHotel = hotel.ToContracts();
-                        hotel.MinPrice = Math.Floor(contractsHotel.GetMinPrice(out decimal salePrice));
+                        hotel.MinPrice = Math.Floor(hotel.GetMinPrice(out decimal salePrice));
                         hotel.MinPricePerDay = Math.Floor((hotel.MinPrice ?? 0) / (int)(DateTime.Parse(request.CheckOut) - DateTime.Parse(request.CheckIn)).TotalDays);
                         if (salePrice >= hotel.MinPrice + 5)
                             hotel.SalePrice = salePrice;
@@ -117,7 +143,7 @@ namespace TravelBridge.API.Models.WebHotelier
                 {
                     return new PluginSearchResponse();
                 }
-                MergedRooms.Results = AvailabilityProcessor.FilterHotelsByAvailability(MergedRooms, partyList.ToContracts());
+                MergedRooms.Results = MergedRooms.CoverRequest(partyList!);
                 return MergedRooms;
             }
             catch (HttpRequestException ex)
@@ -126,44 +152,47 @@ namespace TravelBridge.API.Models.WebHotelier
             }
         }
 
-        internal async Task<SingleAvailabilityResponse> GetHotelAvailabilityAsync(
-            WHSingleAvailabilityRequest request,
-            DateTime checkinDate,
-            ReservationsRepository? reservationsRepository,
-            List<SelectedRate>? rates = null,
-            string? couponCode = null)
+        internal async Task<SingleAvailabilityResponse> GetHotelAvailabilityAsync(SingleAvailabilityRequest req, DateTime checkin, ReservationsRepository? reservationsRepository, List<SelectedRate>? rates = null, string? couponCode = null)
         {
             try
             {
                 rates?.ForEach(r => r.FillPartyFromId());
 
-                List<WHPartyItem> partyList = rates == null ? GetPartyList(request.Party) : GetPartyList(rates);
+                List<PartyItem> partyList = rates == null ? GetPartyList(req) : GetPartyList(rates);
 
                 if (partyList.IsNullOrEmpty())
                 {
                     throw new InvalidOperationException($"Error calling WebHotelier API. Invalid parties");
                 }
 
-                Dictionary<WHPartyItem, Task<WHSingleAvailabilityData?>> tasks = new();
+                Dictionary<PartyItem, Task<HttpResponseMessage>> tasks = new();
                 foreach (var partyItem in partyList ?? new())
                 {
-                    tasks.Add(partyItem, _whClient.GetSingleAvailabilityAsync(request.PropertyId, request.CheckIn, request.CheckOut, partyItem.party!));
+                    // Build the query string from the availabilityRequest object
+                    tasks.Add(partyItem, _httpClient.GetAsync($"availability/{req.PropertyId}?party={partyItem.party}" +
+                           $"&checkin={Uri.EscapeDataString(req.CheckIn)}" +
+                           $"&checkout={Uri.EscapeDataString(req.CheckOut)}"));
                 }
 
+                // Send GET request
                 await Task.WhenAll(tasks.Values);
 
-                WHSingleAvailabilityData? finalRes = null;
+                SingleAvailabilityData? finalRes = null;
                 foreach (var task in tasks.OrderBy(p => p.Key.adults))
                 {
-                    var res = await task.Value ?? throw new InvalidOperationException("No Results");
+                    var result = task.Value.Result;
+                    result.EnsureSuccessStatusCode();
+                    var jsonString = await result.Content.ReadAsStringAsync();
+                    var res = JsonSerializer.Deserialize<SingleAvailabilityData>(jsonString) ?? throw new InvalidOperationException("No Results");
                     if (res == null)
                     {
                         return new SingleAvailabilityResponse { ErrorMessage = "No response" };
                     }
-                    finalRes?.Data?.Rates.AddRange(res.Data?.Rates ?? new List<WHHotelRate>());
+                    finalRes?.Data?.Rates.AddRange(res.Data?.Rates ?? new List<HotelRate>());
                     finalRes ??= res;
 
-                    WHProvider Provider = WHProvider.WebHotelier;
+                    Provider Provider = Provider.WebHotelier;
+                    // Deserialize the response JSON
                     foreach (var rate in res.Data?.Rates ?? [])
                     {
                         rate.SearchParty = task.Key;
@@ -173,20 +202,20 @@ namespace TravelBridge.API.Models.WebHotelier
 
                 if (rates != null)
                 {
+                    //make sure i return proper rates and counts. test scenario with the same rate two times
+
                     rates.ForEach(selectedRate => selectedRate.rateId = (selectedRate.roomId != null && selectedRate.rateId == null) ? selectedRate.roomId : selectedRate.rateId);
-                    finalRes!.Data!.Rates = finalRes.Data.Rates
+                    finalRes.Data.Rates = finalRes.Data.Rates
                         .Where(r => rates.Any(sr => sr.rateId.Equals(r.Id.ToString()) && sr.count > 0)).ToList();
 
-                    // Map to response first, then check availability
-                    var mappedResponse = finalRes.MapToResponse(checkinDate, 0, CouponType.none);
-                    if (mappedResponse == null || !AvailabilityProcessor.HasSufficientAvailability(mappedResponse, rates))
+                    if (!finalRes.CoversRequest(partyList))
                     {
                         return new SingleAvailabilityResponse { ErrorCode = "Error", ErrorMessage = "Not enough rooms", Data = new SingleHotelAvailabilityInfo { Rooms = [] } };
                     }
                 }
                 else if (finalRes?.Data?.Rates.IsNullOrEmpty() != false)
                 {
-                    finalRes!.Alternatives = await GetAlternatives(partyList, request.PropertyId, request.CheckIn, request.CheckOut);
+                    finalRes.Alternatives = await GetAlternatives(partyList, req);
                 }
 
                 decimal disc = 0;
@@ -208,15 +237,16 @@ namespace TravelBridge.API.Models.WebHotelier
 
                 if (finalRes != null && finalRes.Data == null)
                 {
-                    finalRes.Data = new WHHotelInfo
+                    finalRes.Data = new HotelInfo
                     {
-                        Code = request.PropertyId,
-                        Provider = WHProvider.WebHotelier,
+                        Code = req.PropertyId,
+                        Provider = Provider.WebHotelier,
                         Rates = []
                     };
                 }
 
-                return finalRes?.MapToResponse(checkinDate, disc, couponType)
+
+                return finalRes?.MapToResponse(checkin, disc, couponType)
                     ?? new SingleAvailabilityResponse { ErrorCode = "Empty", ErrorMessage = "No records found", Data = new SingleHotelAvailabilityInfo { Rooms = [] } };
             }
             catch (HttpRequestException ex)
@@ -225,40 +255,47 @@ namespace TravelBridge.API.Models.WebHotelier
             }
         }
 
-        private async Task<List<WHAlternative>> GetAlternatives(List<WHPartyItem>? partyList, string propertyId, string checkIn, string checkOut)
+        private async Task<List<Alternative>> GetAlternatives(List<PartyItem>? partyList, SingleAvailabilityRequest req)
         {
-            var from = DateTime.Parse(checkIn).AddDays(-14);
-            var to = DateTime.Parse(checkOut).AddDays(14);
+            var from = DateTime.Parse(req.CheckIn).AddDays(-14);
+            var to = DateTime.Parse(req.CheckOut).AddDays(14);
 
             if (from < DateTime.Today.AddDays(1))
             {
                 from = DateTime.Today.AddDays(1);
             }
 
-            Dictionary<WHPartyItem, Task<WHAlternativeDaysData?>> tasks = new();
+            Dictionary<PartyItem, Task<HttpResponseMessage>> tasks = new();
             foreach (var partyItem in partyList ?? new())
             {
-                tasks.Add(partyItem, _whClient.GetFlexibleCalendarAsync(propertyId, partyItem.party!, from, to));
+                // Build the query string from the availabilityRequest object
+                tasks.Add(partyItem, _httpClient.GetAsync($"availability/{req.PropertyId}/flexible-calendar?party={partyItem.party}" +
+                       $"&startDate={from:yyyy-MM-dd}" +
+                       $"&endDate={to:yyyy-MM-dd}"));
             }
 
+            // Send GET request
             await Task.WhenAll(tasks.Values);
-            
-            Dictionary<WHPartyItem, List<WHAlternative>> alterDatesDict = new();
+            Dictionary<PartyItem, List<Alternative>> alterDatesDict = new();
+            SingleAvailabilityData? finalRes = null;
             foreach (var task in tasks.OrderBy(p => p.Key.adults))
             {
-                var res = await task.Value ?? throw new InvalidOperationException("No Results");
+                var result = task.Value.Result;
+                result.EnsureSuccessStatusCode();
+                var jsonString = await result.Content.ReadAsStringAsync();
+                var res = JsonSerializer.Deserialize<AlternativeDaysData>(jsonString) ?? throw new InvalidOperationException("No Results");
                 if (res == null)
                 {
                     return [];
                 }
                 var alterDates = res.Data?.days?.Where(d => d.status == "AVL" || d.status == "MIN") ?? [];
-                alterDatesDict.Add(task.Key, GetAlterDates(alterDates, checkIn, checkOut));
+                alterDatesDict.Add(task.Key, GetAlterDates(alterDates, req.CheckIn, req.CheckOut));
             }
 
             return KeepCommon(alterDatesDict);
         }
 
-        private static List<WHAlternative> KeepCommon(Dictionary<WHPartyItem, List<WHAlternative>> alterDatesDict)
+        private static List<Alternative> KeepCommon(Dictionary<PartyItem, List<Alternative>> alterDatesDict)
         {
             var allCheckInOutPairs = alterDatesDict.Values
              .Select(list => list
@@ -281,7 +318,7 @@ namespace TravelBridge.API.Models.WebHotelier
             // Group by date and sum
             return matchingAlternatives
                 .GroupBy(a => new { a.CheckIn, a.Checkout })
-                .Select(g => new WHAlternative
+                .Select(g => new Alternative
                 {
                     CheckIn = g.Key.CheckIn,
                     Checkout = g.Key.Checkout,
@@ -293,15 +330,11 @@ namespace TravelBridge.API.Models.WebHotelier
                 .ToList();
         }
 
-        private static List<WHAlternative> GetAlterDates(IEnumerable<WHAlternativeDayInfo> alterDates, string checkIn, string checkOut)
+        private static List<Alternative> GetAlterDates(IEnumerable<AlternativeDayInfo> alterDates, string checkIn, string checkOut)
         {
             try
             {
-                if (!alterDates.Any())
-                {
-                    return [];
-                }
-                List<WHAlternative> results = new List<WHAlternative>();
+                List<Alternative> results = new List<Alternative>();
                 foreach (var dat in alterDates)
                 {
                     dat.dateOnly = DateTime.ParseExact(dat.date, "yyyy-MM-dd", CultureInfo.InvariantCulture);
@@ -317,7 +350,7 @@ namespace TravelBridge.API.Models.WebHotelier
                     {
                         duration = curDate.min_stay;
                     }
-                    WHAlternative alt = new WHAlternative()
+                    Alternative alt = new Alternative()
                     {
                         CheckIn = curDate.dateOnly,
                         Checkout = curDate.dateOnly.AddDays(duration),
@@ -357,25 +390,13 @@ namespace TravelBridge.API.Models.WebHotelier
             }
         }
 
-        private static List<WHPartyItem> GetPartyList(string party)
+        private static List<PartyItem> GetPartyList(List<SelectedRate> rates)
         {
-            return JsonSerializer.Deserialize<List<WHPartyItem>>(party)!.GroupBy(g => new { g.adults, Children = g.children != null ? string.Join(",", g.children) : "" })
-                    .Select(g => new WHPartyItem
-                    {
-                        adults = g.Key.adults,
-                        children = g.First().children,
-                        RoomsCount = g.Count(),
-                        party = JsonSerializer.Serialize(new List<WHPartyItem> { new WHPartyItem { adults = g.Key.adults, children = g.First().children } })
-                    }).ToList();
-        }
-
-        private static List<WHPartyItem> GetPartyList(List<SelectedRate> rates)
-        {
-            var partyList = new List<WHPartyItem>();
+            var partyList = new List<PartyItem>();
 
             foreach (var selectedRate in rates.GroupBy(g => g.searchParty))
             {
-                var item = JsonSerializer.Deserialize<WHPartyItem>(selectedRate.Key.TrimStart('[').TrimEnd(']')) ?? throw new InvalidDataException("Invalid Party");
+                var item = JsonSerializer.Deserialize<PartyItem>(selectedRate.Key.TrimStart('[').TrimEnd(']')) ?? throw new InvalidDataException("Invalid Party");
                 item.RoomsCount = selectedRate.Count();
                 item.party = selectedRate.Key;
                 partyList.Add(item);
@@ -383,7 +404,7 @@ namespace TravelBridge.API.Models.WebHotelier
             return partyList;
         }
 
-        private static PluginSearchResponse MergeResponses(Dictionary<WHPartyItem, WHMultiAvailabilityResponse> respones)
+        private static PluginSearchResponse MergeResponses(Dictionary<PartyItem, MultiAvailabilityResponse> respones)
         {
             try
             {
@@ -396,20 +417,19 @@ namespace TravelBridge.API.Models.WebHotelier
                 {
                     return new PluginSearchResponse
                     {
-                        Results = respones.First().Value?.Data?.Hotels?.ToContracts()
+                        Results = respones.First().Value?.Data?.Hotels?
                         .Where(h => !string.IsNullOrWhiteSpace(h.PhotoL) && h.MinPrice > 0)
-                        .ToList()  // Materialize to prevent deferred execution
                         ?? []
                     };
                 }
 
-                if (respones.Any(r => r.Value?.Data?.Hotels?.Any() != true))
+                if (respones.Any(r => r.Value?.Data?.Hotels?.IsNullOrEmpty() != false))
                 {
                     throw new InvalidOperationException($"No results");
                 }
 
                 //keep only hotels that exist in all results
-                var GroupedHotels = respones.SelectMany(h => h.Value.Data!.Hotels)
+                var GroupedHotels = respones.SelectMany(h => h.Value.Data.Hotels)
                      .GroupBy(h => h.Id).Where(h => h.Count() == respones.Count).ToList()
                      ?? throw new InvalidOperationException($"No results");
 
@@ -422,20 +442,18 @@ namespace TravelBridge.API.Models.WebHotelier
                     {
                         continue;
                     }
-                    var contractsHotel = temp.ToContracts();
-                    contractsHotel.Rates = hotels.SelectMany(h => h.Rates.Select(r => r.ToContracts())).ToList();
-                    contractsHotel.MinPrice = hotels.Sum(h => h.MinPrice * h.SearchParty?.RoomsCount ?? 1);
-                    contractsHotel.MinPricePerDay = hotels.Sum(h => h.MinPricePerDay * h.SearchParty?.RoomsCount ?? 1);
-                    contractsHotel.SalePrice = hotels.Sum(h => h.SalePrice * h.SearchParty?.RoomsCount ?? 1);
+                    temp.Rates = hotels.SelectMany(h => h.Rates).ToList();
+                    temp.MinPrice = hotels.Sum(h => h.MinPrice * h.SearchParty.RoomsCount);
+                    temp.MinPricePerDay = hotels.Sum(h => h.MinPricePerDay * h.SearchParty.RoomsCount);
+                    temp.SalePrice = hotels.Sum(h => h.SalePrice * h.SearchParty.RoomsCount);
 
-                    FinalObjects.Add(contractsHotel);
+                    FinalObjects.Add(temp);
                 }
 
                 return new PluginSearchResponse
                 {
                     Results = FinalObjects?
                        .Where(h => !string.IsNullOrWhiteSpace(h.PhotoL) && h.MinPrice > 0)
-                       .ToList()  // Materialize to prevent deferred execution
                        ?? []
                 };
             }
@@ -446,12 +464,35 @@ namespace TravelBridge.API.Models.WebHotelier
             }
         }
 
-        internal async Task<WHHotelInfoResponse> GetHotelInfo(string hotelId)
+        private static IEnumerable<AutoCompleteHotel> MapResultsToHotels(Hotel[] hotels)
+        {
+            //TODO:maybe use custom hotel codes stored in our DB for security and privacy
+            //TODO: handle error
+            return hotels.Select(f =>
+            new AutoCompleteHotel(f.code,
+            Provider.WebHotelier,
+            f.name,
+            f.location.name,
+            f.location.country,
+            f.type));
+        }
+
+        internal async Task<HotelInfoResponse> GetHotelInfo(string hotelId)
         {
             try
             {
-                var res = await _whClient.GetHotelInfoAsync(hotelId) ?? throw new InvalidOperationException("Hotel not Found");
-                res.Data!.LargePhotos = res.Data.PhotosItems.Select(p => p.Large);
+                // Build the query string from the availabilityRequest object
+                var url = $"/property/{hotelId}";
+
+                // Send GET request
+                var response = await _httpClient.GetAsync(url);
+
+                response.EnsureSuccessStatusCode();
+
+                // Deserialize the response JSON
+                var jsonString = await response.Content.ReadAsStringAsync();
+                var res = JsonSerializer.Deserialize<HotelInfoResponse>(jsonString) ?? throw new InvalidOperationException("Hotel not Found");
+                res.Data.LargePhotos = res.Data.PhotosItems.Select(p => p.Large);
                 res.Data.PhotosItems = [];
                 return res;
             }
@@ -461,19 +502,42 @@ namespace TravelBridge.API.Models.WebHotelier
             }
         }
 
-        internal async Task<WHRoomInfoResponse> GetRoomInfo(string hotelId, string roomcode)
+        internal async Task<RoomInfoRespone> GetRoomInfo(string hotelId, string roomcode)
         {
             try
             {
-                var res = await _whClient.GetRoomInfoAsync(hotelId, roomcode) ?? throw new InvalidOperationException("Room not Found");
-                res.Data!.LargePhotos = res.Data.PhotosItems.Select(p => p.Large);
+                // Build the query string from the availabilityRequest object
+                var url = $"/room/{hotelId}/{roomcode}";
+
+                // Send GET request
+                var response = await _httpClient.GetAsync(url);
+
+                response.EnsureSuccessStatusCode();
+
+                // Deserialize the response JSON
+                var jsonString = await response.Content.ReadAsStringAsync();
+                var res = JsonSerializer.Deserialize<RoomInfoRespone>(jsonString) ?? throw new InvalidOperationException("Hotel not Found");
+                res.Data.LargePhotos = res.Data.PhotosItems.Select(p => p.Large);
                 res.Data.MediumPhotos = res.Data.PhotosItems.Select(p => p.Medium);
+                //res.Data.PhotosItems = res.Data.PhotosItems.Select(a => new PhotoInfo { Medium = a.Medium });
                 return res;
             }
             catch (HttpRequestException ex)
             {
                 throw new InvalidOperationException($"Error calling WebHotelier API: {ex.Message}", ex);
             }
+        }
+
+        private static List<PartyItem> GetPartyList(IParty request)
+        {
+            return JsonSerializer.Deserialize<List<PartyItem>>(request.Party).GroupBy(g => g)
+                    .Select(g => new PartyItem
+                    {
+                        adults = g.Key.adults,
+                        children = g.Key.children,
+                        RoomsCount = g.Count(),
+                        party = JsonSerializer.Serialize(new List<PartyItem> { g.Key })
+                    }).ToList();
         }
 
         internal async Task CreateBooking(Reservation reservation, Repositories.ReservationsRepository repo)
@@ -519,17 +583,26 @@ namespace TravelBridge.API.Models.WebHotelier
                         throw new InvalidOperationException($"Error updating reservation rate status");
                     }
 
-                    var hotelCode = reservation.HotelCode!.Split('-')[1];
-                    var res = await _whClient.CreateBookingAsync(hotelCode, parameters);
-                    
-                    if (res == null)
+                    HttpResponseMessage response = await CreateBooking(reservation, parameters);
+                    var jsonString = await response.Content.ReadAsStringAsync();
+
+                    // Read response as JSON string
+                    if (response.IsSuccessStatusCode)
                     {
-                        throw new InvalidOperationException("Invalid Booking Response");
+                        var res = JsonSerializer.Deserialize<BookingResponse>(jsonString) ?? throw new InvalidOperationException("Invalid Booking Response : " + jsonString);
+                        if (!await repo.UpdateReservationRateStatusConfirmed(rate.Id, BookingStatus.Confirmed, res.data.res_id))
+                        {
+                            throw new InvalidOperationException($"Error updating reservation rate status to Confirmed. {rate.Id}");
+                        }
                     }
-                    
-                    if (!await repo.UpdateReservationRateStatusConfirmed(rate.Id, BookingStatus.Confirmed, res.data!.res_id))
+                    else
                     {
-                        throw new InvalidOperationException($"Error updating reservation rate status to Confirmed. {rate.Id}");
+                        if (!await repo.UpdateReservationRateStatus(rate.Id, BookingStatus.Error, BookingStatus.Running))
+                        {
+                            throw new InvalidOperationException($"Error updating reservation rate status from running to error. {rate.Id}");
+                        }
+
+                        throw new InvalidOperationException($"Error calling WebHotelier API: {response.StatusCode} - {jsonString}");
                     }
                 }
 
@@ -559,6 +632,23 @@ namespace TravelBridge.API.Models.WebHotelier
             }
         }
 
+        private async Task<HttpResponseMessage> CreateBooking(Reservation reservation, Dictionary<string, string> parameters)
+        {
+            // Build the query string from the availabilityRequest object
+            var url = $"/book/{reservation.HotelCode!.Split('-')[1]}";
+
+            // Serialize parameters to URL-encoded form data
+            var content = new FormUrlEncodedContent(parameters);
+
+            // Set the Accept header to receive JSON response
+            _httpClient.DefaultRequestHeaders.Accept.Clear();
+            _httpClient.DefaultRequestHeaders.Accept.Add(new MediaTypeWithQualityHeaderValue("application/json"));
+
+            // Send POST request with parameters in the body
+            var response = await _httpClient.PostAsync(url, content);
+            return response;
+        }
+
         public async Task<bool> CancelBooking(Reservation reservation, Repositories.ReservationsRepository repo)
         {
             bool allOk = true;
@@ -566,13 +656,18 @@ namespace TravelBridge.API.Models.WebHotelier
             {
                 if (rate.ProviderResId > 0 == true)
                 {
-                    var success = await _whClient.CancelBookingAsync(rate.ProviderResId);
+                    // Build the query string from the availabilityRequest object
+                    var url = $"/purge/{rate.ProviderResId}";
 
-                    if (success)
+                    // Send GET request
+                    var response = await _httpClient.GetAsync(url);
+
+                    if (response.IsSuccessStatusCode)
                     {
                         if (!await repo.UpdateReservationStatus(reservation.Id, BookingStatus.Cancelled))
                         {
                             throw new InvalidOperationException($"Error updating reservation status to canceled");
+                            //await SendConfirmationEmail(reservation);
                         }
                     }
                     else
@@ -582,7 +677,7 @@ namespace TravelBridge.API.Models.WebHotelier
                         {
                             throw new InvalidOperationException($"Error updating reservation rate status");
                         }
-                        throw new InvalidOperationException($"Error calling WebHotelier API for cancellation");
+                        throw new InvalidOperationException($"Error calling WebHotelier API: {response.StatusCode} - {response.ReasonPhrase} - {await response.Content.ReadAsStringAsync()}");
                     }
                 }
             }
@@ -596,7 +691,7 @@ namespace TravelBridge.API.Models.WebHotelier
             string resourceName = "TravelBridge.API.Resources.BookingConfirmationEmailTemplate.html";
             string htmlContent;
 
-            using (Stream stream = assembly.GetManifestResourceStream(resourceName)!)
+            using (Stream stream = assembly.GetManifestResourceStream(resourceName))
             {
                 if (stream == null)
                     throw new InvalidOperationException($"Resource {resourceName} not found.");
@@ -606,7 +701,7 @@ namespace TravelBridge.API.Models.WebHotelier
             }
             var paid = reservation.Payments.Where(p => p.PaymentStatus == PaymentStatus.Success).Sum(a => a.Amount);
             htmlContent = htmlContent
-                .Replace("[Client Full Name]", $"{reservation.Customer!.LastName} {reservation.Customer.FirstName}")
+                .Replace("[Client Full Name]", $"{reservation.Customer.LastName} {reservation.Customer.FirstName}")
                 .Replace("[Hotel Name]", reservation.HotelName)
                 .Replace("[ReservationCode]", string.Join(", ", reservation.Rates.Select(r => r.ProviderResId)))
                 .Replace("[CheckInString]", reservation.CheckIn.ToString("dd/MM/yyyy") + $" από τις {reservation.CheckInTime} και μετά")

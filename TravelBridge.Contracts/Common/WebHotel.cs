@@ -3,7 +3,7 @@ namespace TravelBridge.Contracts.Common
     public class WebHotel : BoardTextBase
     {
         [JsonPropertyName("code")]
-        public string Code { get; set; }
+        public string Code { internal get; set; }
 
         public string Id { get; set; }
 

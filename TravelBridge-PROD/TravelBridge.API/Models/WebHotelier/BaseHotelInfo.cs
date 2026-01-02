@@ -1,4 +1,6 @@
-namespace TravelBridge.Contracts.Models.Hotels
+using System.Text.Json.Serialization;
+
+namespace TravelBridge.API.Models.WebHotelier
 {
     public class BaseHotelInfo
     {

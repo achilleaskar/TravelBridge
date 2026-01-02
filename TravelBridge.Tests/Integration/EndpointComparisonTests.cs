@@ -290,9 +290,10 @@ public class EndpointComparisonTests
     [TestMethod]
     public async Task RoomInfo_VAROSVILL_ShouldMatchProduction()
     {
-        var endpoint = "/api/hotel/roomInfo?HotelId=1-VAROSVILL&RoomId=LVLSTD";
+        // Use LGDBL which is a valid room code for VAROSVILL (from availability response)
+        var endpoint = "/api/hotel/roomInfo?HotelId=1-VAROSVILL&roomId=LGDBL";
         var (prodJson, localJson) = await GetRawResponses(endpoint);
-        AssertJsonEqual(prodJson, localJson, "RoomInfo_VAROSVILL");
+        AssertJsonEqual(prodJson, localJson, "RoomInfo_VAROSVILL_LGDBL");
     }
 
     #endregion
