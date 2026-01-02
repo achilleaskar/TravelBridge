@@ -1,89 +1,64 @@
-# COPILOT_REFACTOR_GUIDE.md
-Goal: Refactor the current single project `TravelBridge.API` into a modular monolith with provider projects,
-without changing behavior. Keep compilation green after each step. Do NOT do a big-bang rewrite.
+I checked **`TravelBridge-3rdTryFromScratch2.zip`** and for **Step 2 (Geo extraction)** what Copilot did is **functionally correct** and matches the direction we want.
 
-## Target Solution Structure
-- TravelBridge.API (Minimal API host / composition root)
-- TravelBridge.Application (ports + resolvers + later use-cases)
-- TravelBridge.Providers.WebHotelier (implements IHotelProvider)
-- TravelBridge.Payments.Viva (implements IPaymentProvider)
-- TravelBridge.Geo.Mapbox (implements IGeoProvider)
-- TravelBridge.Geo.HereMaps (implements IGeoProvider)
-Optional later:
-- TravelBridge.Infrastructure.MariaDb (DbContext, migrations, repositories)
-- TravelBridge.Domain (entities) / TravelBridge.Contracts (DTOs)
+### What looks correct (based on your code)
 
-## Hard Rules (DO NOT VIOLATE)
-1) Providers MUST NOT reference TravelBridge.API.
-2) TravelBridge.Application contains provider interfaces ("ports") that providers implement.
-3) TravelBridge.API is the only place where DI wiring happens (composition root).
-4) Keep namespaces temporarily if that minimizes churn.
-5) After each step, run `dotnet build` and fix immediately.
+* ✅ New projects **`TravelBridge.Geo.Mapbox`** and **`TravelBridge.Geo.HereMaps`** actually contain the moved code:
 
-## Step-by-step Plan (must follow in order)
+  * `MapBoxApiOptions`, `MapBoxAutoCompleteResponse`, `MapBoxService`, `ServiceCollectionExtensions`
+  * `HereMapsApiOptions`, `HereMapsAutoCompleteResponse`, `HereMapsService`, `ServiceCollectionExtensions`
+* ✅ `Program.cs` now uses:
 
-### Phase 1: Create projects & references (no file moves)
-1. Create classlib projects:
-   - TravelBridge.Application
-   - TravelBridge.Providers.WebHotelier
-   - TravelBridge.Payments.Viva
-   - TravelBridge.Geo.Mapbox
-   - TravelBridge.Geo.HereMaps
-2. Add to TravelBridge.sln
-3. Add references:
-   - TravelBridge.API references TravelBridge.Application and all provider projects
+  * `builder.Services.AddHereMaps(builder.Configuration);`
+  * `builder.Services.AddMapBox(builder.Configuration);`
+    and removed the old inline registrations for those two.
+* ✅ API code was updated to reference the new namespaces:
 
-### Phase 2: Add Ports & Resolvers
-4. In TravelBridge.Application add ports:
-   - IHotelProvider, IHotelProviderResolver
-   - IPaymentProvider, IPaymentProviderResolver + payment records
-   - IGeoProvider
-   - ProviderHotelId helper
-5. Add resolver implementations:
-   - HotelProviderResolver, PaymentProviderResolver
-6. Add AddTravelBridgeApplication() extension method registering resolvers.
+  * `MappingExtensions.MapToAutoCompleteLocations(this List<Feature> features)` now uses `TravelBridge.Geo.Mapbox.Feature`
+  * `SearchPluginEndpoints` injects `MapBoxService` from the new project and still maps to your Contracts response.
+* ✅ Config section names match your `appsettings.json`:
 
-### Phase 3: Move providers one-by-one (keep behavior)
-7. Move WebHotelier code:
-   - Move TravelBridge.API/Services/WebHotelier/* and Models/WebHotelier/* to TravelBridge.Providers.WebHotelier
-   - Create WebHotelierHotelProvider : IHotelProvider with same logic as WebHotelierPropertiesService
-   - Add AddWebHotelier(IServiceCollection, IConfiguration)
-8. Move Viva code:
-   - Move TravelBridge.API/Services/Viva/* to TravelBridge.Payments.Viva
-   - Implement VivaPaymentProvider : IPaymentProvider
-   - Remove IHttpContextAccessor usage from provider:
-     - Accept PaymentSourceHint in CreatePaymentRequest and decide SourceCode there
-   - Add AddVivaPayments(IServiceCollection, IConfiguration)
-9. Move Geo:
-   - Mapbox: implement IGeoProvider in TravelBridge.Geo.Mapbox
-   - HereMaps: implement IGeoProvider in TravelBridge.Geo.HereMaps
-   - Add corresponding AddMapboxGeo/AddHereMapsGeo
+  * `MapBoxApi` and `HereMapsApi` are used by the extension methods and exist in the file.
 
-### Phase 4: Wire DI in TravelBridge.API Program.cs
-10. Replace old registrations with:
-    - services.AddTravelBridgeApplication()
-    - services.AddWebHotelier(Configuration)
-    - services.AddVivaPayments(Configuration)
-    - services.AddMapboxGeo(Configuration)
-    - services.AddHereMapsGeo(Configuration)
+So yes: **Step 2 is done properly.**
 
-### Phase 5: Optional - Extract infrastructure
-11. Create TravelBridge.Infrastructure.MariaDb and move:
-    - DataBase/, Migrations/, Repositories/
-12. Update EF Core config in API to use migrations assembly TravelBridge.Infrastructure.MariaDb
+---
 
-### Phase 6: Thin endpoints (later)
-13. Create Application services (orchestrators) for Checkout/Reservation/Payment flows.
-14. Endpoints call orchestrators instead of calling providers directly.
+## Small improvements (not required now, but I’d do soon)
 
-## Definition of Done (for this refactor)
-- Build succeeds
-- Existing endpoints return same responses
-- Providers are isolated in their projects and implement ports
-- No provider project references TravelBridge.API
+### 1) Avoid leaking Mapbox DTOs into API (optional, but cleaner)
 
-## Common Pitfalls to Avoid
-- Circular project references: never make Application reference providers.
-- Moving too many files at once: move one provider at a time, build after each move.
-- Injecting HttpContext into providers: pass only minimal hints/values from API/Application.
-- Accidentally changing DTO shapes: keep Contracts stable until orchestration is moved.
+Right now API depends on `TravelBridge.Geo.Mapbox.Feature` because `MapBoxService.GetLocationsAsync()` returns `List<Feature>`.
+
+**Cleaner end-state:** `MapBoxService` returns `IEnumerable<AutoCompleteLocation>` directly (Contracts model) OR implements an `IGeoProvider` port.
+That would let you delete the `Feature` mapping in API entirely.
+
+Not urgent — just prevents “provider DTO creeping back in”.
+
+### 2) Make Mapbox/Here wire DTOs `internal` (later)
+
+Right now `Feature`, `Properties`, etc. are `public`. If you keep them public, they can leak again.
+Once you stop returning `Feature` to API, you can make the DTOs `internal` safely.
+
+### 3) Minor: `lang` parameter isn’t used in MapBoxService
+
+`GetLocationsAsync(string? param, string? lang)` always uses `language=el`. That’s existing behavior; just noting.
+
+---
+
+## Next step I recommend (Step 3)
+
+Now that Geo is separated, the next high-value step is:
+
+✅ **Create a real WebHotelier client inside `TravelBridge.Providers.WebHotelier`** and refactor `WebHotelierPropertiesService` (still in API) to use it.
+
+That will finally move *HTTP + wire* logic into the provider project, while API keeps DB/email/orchestration for now.
+
+If you want, I’ll give you the exact “micro-steps” for Step 3 (files to add, what methods to extract first, and how to keep build green).
+
+---
+
+### One important note (security)
+
+Your `appsettings.json` in the zip contains real API keys/passwords (Viva, Mapbox, SMTP, WebHotelier). You should rotate them and move secrets to environment variables / user-secrets and **remove them from git history** if this repo is public.
+
+If you paste your current `WebHotelierPropertiesService` ctor + the parts that create HTTP requests, I’ll show you exactly how to carve out `WebHotelierClient` with minimal changes.

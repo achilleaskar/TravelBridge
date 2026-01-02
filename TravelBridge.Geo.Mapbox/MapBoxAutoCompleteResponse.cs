@@ -2,13 +2,13 @@ using System.Text.Json.Serialization;
 
 namespace TravelBridge.Geo.Mapbox;
 
-public class MapBoxAutoCompleteResponse
+internal class MapBoxAutoCompleteResponse
 {
     [JsonPropertyName("features")]
     public List<Feature> Features { get; set; } = [];
 }
 
-public class Feature
+internal class Feature
 {
     [JsonPropertyName("type")]
     public string? Type { get; set; }
@@ -17,7 +17,7 @@ public class Feature
     public Properties Properties { get; set; } = null!;
 }
 
-public class Properties
+internal class Properties
 {
     [JsonPropertyName("feature_type")]
     public string? FeatureType { get; set; }
@@ -35,7 +35,7 @@ public class Properties
     public Context Context { get; set; } = null!;
 }
 
-public class Coordinate
+internal class Coordinate
 {
     [JsonPropertyName("longitude")]
     public double Longitude { get; set; }
@@ -44,7 +44,7 @@ public class Coordinate
     public double Latitude { get; set; }
 }
 
-public class Context
+internal class Context
 {
     [JsonPropertyName("region")]
     public Region Region { get; set; } = null!;
@@ -56,7 +56,7 @@ public class Context
     public Place Place { get; set; } = null!;
 }
 
-public class Region
+internal class Region
 {
     [JsonPropertyName("name")]
     public string Name { get; set; } = null!;
@@ -65,7 +65,7 @@ public class Region
     public Translations? Translations { get; set; }
 }
 
-public class Country
+internal class Country
 {
     [JsonPropertyName("name")]
     public string Name { get; set; } = null!;
@@ -77,7 +77,7 @@ public class Country
     public Translations? Translations { get; set; }
 }
 
-public class Place
+internal class Place
 {
     [JsonPropertyName("name")]
     public string Name { get; set; } = null!;
@@ -86,7 +86,7 @@ public class Place
     public Translations? Translations { get; set; }
 }
 
-public class Translations
+internal class Translations
 {
     [JsonPropertyName("el")]
     public LanguageTranslation? El { get; set; }
@@ -95,7 +95,7 @@ public class Translations
     public LanguageTranslation? En { get; set; }
 }
 
-public class LanguageTranslation
+internal class LanguageTranslation
 {
     [JsonPropertyName("name")]
     public string? Name { get; set; }

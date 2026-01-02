@@ -1,11 +1,11 @@
 namespace TravelBridge.Geo.HereMaps;
 
-public class HereMapsAutoCompleteResponse
+internal class HereMapsAutoCompleteResponse
 {
     public List<Item> Items { get; set; } = [];
 }
 
-public class Item
+internal class Item
 {
     public string Title { get; set; } = null!;
     public string ResultType { get; set; } = null!;
@@ -13,7 +13,7 @@ public class Item
     public Address Address { get; set; } = null!;
 }
 
-public class Address
+internal class Address
 {
     public string Label { get; set; } = null!;
     public string CountryName { get; set; } = null!;
