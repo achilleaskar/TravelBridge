@@ -1,12 +1,12 @@
-using TravelBridge.Contracts.Contracts;
+namespace TravelBridge.Providers.WebHotelier.Models.Responses;
 
-namespace TravelBridge.Providers.WebHotelier.Models.Responses
+/// <summary>
+/// WebHotelier wire response for alternative dates.
+/// </summary>
+public class WHAlternativeDaysData : WHBaseResponse
 {
-    public class AlternativeDaysData : BaseWebHotelierResponse
-    {
-        [JsonPropertyName("data")]
-        public AlternativesInfo Data { get; set; }
+    [JsonPropertyName("data")]
+    public WHAlternativesInfo? Data { get; set; }
 
-        public List<Alternative> Alternatives { get; internal set; }
-    }
+    public List<WHAlternative> Alternatives { get; internal set; } = [];
 }

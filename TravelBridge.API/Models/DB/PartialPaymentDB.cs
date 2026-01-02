@@ -1,5 +1,4 @@
 using System.ComponentModel.DataAnnotations.Schema;
-using TravelBridge.Contracts.Common.Payments;
 
 namespace TravelBridge.API.Models.DB
 {

@@ -4,6 +4,7 @@ using Microsoft.AspNetCore.Mvc;
 using Microsoft.OpenApi.Models;
 using TravelBridge.API.Contracts;
 using TravelBridge.API.Helpers;
+using TravelBridge.API.Helpers.Extensions;
 using TravelBridge.API.Repositories;
 using static TravelBridge.API.Helpers.General;
 using TravelBridge.Payments.Viva.Models.ExternalModels;
@@ -284,7 +285,7 @@ namespace TravelBridge.API.Endpoints
             Task.WaitAll(availTask, hotelTask);
 
             SingleAvailabilityResponse? availRes = await availTask;
-            HotelInfoResponse? hotelRes = await hotelTask;
+            WHHotelInfoResponse? hotelRes = await hotelTask;
 
             if (availRes.Data != null)
             {
@@ -437,14 +438,15 @@ namespace TravelBridge.API.Endpoints
             Task.WaitAll(availTask, hotelTask);
 
             SingleAvailabilityResponse? availRes = await availTask;
-            HotelInfoResponse? hotelRes = await hotelTask;
+            WHHotelInfoResponse? hotelRes = await hotelTask;
+            var hotelData = hotelRes.Data!.ToContracts();
 
             if (availRes.Data != null)
             {
                 availRes.Data.Provider = Provider.WebHotelier;
             }
 
-            hotelRes.Data.Provider = Provider.WebHotelier;
+            hotelData.Provider = Provider.WebHotelier;
 
             int nights = (parsedCheckOut - parsedCheckin).Days;
 
@@ -454,14 +456,14 @@ namespace TravelBridge.API.Endpoints
                 CouponUsed = reservationRequest.couponCode,
                 CouponDiscount = availRes.CouponDiscount,
                 CouponValid = availRes.CouponValid,
-                LabelErrorMessage = hotelRes.ErrorMsg,
+                LabelErrorMessage = hotelRes.ErrorMessage,
                 HotelData = new CheckoutHotelInfo
                 {
-                    Id = hotelRes.Data.Id,
-                    Name = hotelRes.Data.Name,
-                    Image = hotelRes.Data.LargePhotos.FirstOrDefault() ?? "",
-                    Operation = hotelRes.Data.Operation,
-                    Rating = hotelRes.Data.Rating
+                    Id = hotelData.Id,
+                    Name = hotelData.Name,
+                    Image = hotelData.LargePhotos.FirstOrDefault() ?? "",
+                    Operation = hotelData.Operation,
+                    Rating = hotelData.Rating
                 },
                 CheckIn = reservationRequest.reservationDetails.checkIn,
                 CheckOut = reservationRequest.reservationDetails.checkOut,
@@ -585,31 +587,32 @@ namespace TravelBridge.API.Endpoints
             Task.WaitAll(availTask, hotelTask);
 
             SingleAvailabilityResponse? availRes = await availTask;
-            HotelInfoResponse? hotelRes = await hotelTask;
+            WHHotelInfoResponse? hotelRes = await hotelTask;
+            var hotelData = hotelRes.Data!.ToContracts();
 
             if (availRes.Data != null)
             {
                 availRes.Data.Provider = Provider.WebHotelier;
             }
 
-            hotelRes.Data.Provider = Provider.WebHotelier;
+            hotelData.Provider = Provider.WebHotelier;
 
             int nights = (parsedCheckOut - parsedCheckin).Days;
 
             var res = new CheckoutResponse
             {
                 ErrorCode = hotelRes.ErrorCode,
-                LabelErrorMessage = hotelRes.ErrorMsg,
+                LabelErrorMessage = hotelRes.ErrorMessage,
                 CouponUsed = pars.couponCode,
                 CouponValid = availRes.CouponValid,
                 CouponDiscount = availRes.CouponDiscount,
                 HotelData = new CheckoutHotelInfo
                 {
-                    Id = hotelRes.Data.Id,
-                    Name = hotelRes.Data.Name,
-                    Image = hotelRes.Data.LargePhotos.FirstOrDefault() ?? "",
-                    Operation = hotelRes.Data.Operation,
-                    Rating = hotelRes.Data.Rating
+                    Id = hotelData.Id,
+                    Name = hotelData.Name,
+                    Image = hotelData.LargePhotos.FirstOrDefault() ?? "",
+                    Operation = hotelData.Operation,
+                    Rating = hotelData.Rating
                 },
                 CheckIn = pars.checkin,
                 CheckOut = pars.checkOut,
@@ -738,8 +741,8 @@ namespace TravelBridge.API.Endpoints
         {
             var details = new Dictionary<string, (string Description, object Example, bool Required)>
             {
-                { "checkin", ("The check-in date for the search (format: dd/MM/yyyy).", "17/06/2025", true) },
-                { "checkOut", ("The check-out date for the search (format: dd/MM/yyyy).", "20/06/2025", true) },
+                { "checkin", ("The check-in date for the search (format: dd/MM/yyyy).", "17/03/2026", true) },
+                { "checkOut", ("The check-out date for the search (format: dd/MM/yyyy).", "20/03/2026", true) },
                 //{ "adults", ("The number of adults for the search. (only if 1 room)", 2, false) },
                 //{ "children", ("The ages of children, comma-separated (e.g., '5,10'). (only if 1 room)", "5,10", false) },
                 //{ "party", ("Additional information about the party (required if more than 1 room. always wins).", "[{\"adults\":2,\"children\":[2,6]},{\"adults\":3}]", false) },
@@ -758,8 +761,8 @@ namespace TravelBridge.API.Endpoints
                 """
                 {
                     "hotelId": "1-VAROSVILL",
-                    "checkIn": "17/06/2025",
-                    "checkOut": "20/06/2025",
+                    "checkIn": "17/03/2026",
+                    "checkOut": "20/03/2026",
                     "rooms": 1,
                     "children": "0",
                     "adults": 2,

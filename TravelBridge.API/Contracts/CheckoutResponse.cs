@@ -1,7 +1,6 @@
 using System.Globalization;
 using TravelBridge.API.Contracts.DTOs;
 using TravelBridge.API.Helpers;
-using TravelBridge.Contracts.Common.Payments;
 
 namespace TravelBridge.API.Contracts
 {

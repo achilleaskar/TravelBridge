@@ -1,9 +1,11 @@
-
 namespace TravelBridge.Providers.WebHotelier.Models.Responses
 {
-    public class Data
+    /// <summary>
+    /// WebHotelier wire model for multi-availability data container.
+    /// </summary>
+    public class WHData
     {
         [JsonPropertyName("hotels")]
-        public IEnumerable<WebHotel> Hotels { get; set; }
+        public IEnumerable<WHWebHotel> Hotels { get; set; } = [];
     }
 }

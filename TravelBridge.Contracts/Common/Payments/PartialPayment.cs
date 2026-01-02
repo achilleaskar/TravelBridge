@@ -1,5 +1,3 @@
-using TravelBridge.Contracts.Common.Payments;
-
 namespace TravelBridge.Contracts.Common.Payments
 {
     public class PartialPayment

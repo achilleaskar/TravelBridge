@@ -1,26 +1,37 @@
-namespace TravelBridge.Providers.WebHotelier.Models.Responses
+namespace TravelBridge.Providers.WebHotelier.Models.Responses;
+
+/// <summary>
+/// WebHotelier wire response for properties list.
+/// </summary>
+public class WHPropertiesResponse
 {
-    public class PropertiesResponse
-    {
-        public PropertiesData data { get; set; }
-    }
+    public WHPropertiesData? data { get; set; }
+}
 
-    public class PropertiesData
-    {
-        public Hotel[] hotels { get; set; }
-    }
+/// <summary>
+/// WebHotelier wire model for properties data.
+/// </summary>
+public class WHPropertiesData
+{
+    public WHHotel[]? hotels { get; set; }
+}
 
-    public class Hotel
-    {
-        public string code { get; set; }
-        public string name { get; set; }
-        public string type { get; set; }
-        public HotelLocation location { get; set; }
-    }
+/// <summary>
+/// WebHotelier wire model for hotel in properties list.
+/// </summary>
+public class WHHotel
+{
+    public string code { get; set; } = string.Empty;
+    public string name { get; set; } = string.Empty;
+    public string type { get; set; } = string.Empty;
+    public WHHotelLocation? location { get; set; }
+}
 
-    public class HotelLocation
-    {
-        public string name { get; set; }
-        public string country { get; set; }
-    }
+/// <summary>
+/// WebHotelier wire model for hotel location in properties list.
+/// </summary>
+public class WHHotelLocation
+{
+    public string name { get; set; } = string.Empty;
+    public string country { get; set; } = string.Empty;
 }

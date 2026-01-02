@@ -1,19 +1,12 @@
 using TravelBridge.Providers.WebHotelier.Models.Room;
 
-namespace TravelBridge.Providers.WebHotelier.Models.Responses
+namespace TravelBridge.Providers.WebHotelier.Models.Responses;
+
+/// <summary>
+/// WebHotelier wire response for room info.
+/// </summary>
+public class WHRoomInfoResponse : WHBaseResponse
 {
-    public class RoomInfoResponse
-    {
-        [JsonPropertyName("http_code")]
-        public int HttpCode { get; set; }
-
-        [JsonPropertyName("error_code")]
-        public string ErrorCode { get; set; }
-
-        [JsonPropertyName("error_msg")]
-        public string ErrorMessage { get; set; }
-
-        [JsonPropertyName("data")]
-        public RoomInfo Data { get; set; }
-    }
+    [JsonPropertyName("data")]
+    public WHRoomInfo? Data { get; set; }
 }

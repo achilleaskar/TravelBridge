@@ -1,5 +1,3 @@
-using TravelBridge.Contracts.Common.Payments;
-
 namespace TravelBridge.API.Helpers
 {
     public static class General
