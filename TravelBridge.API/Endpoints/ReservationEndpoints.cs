@@ -283,7 +283,7 @@ namespace TravelBridge.API.Endpoints
 
             var hotelTask = webHotelierPropertiesService.GetHotelInfo(hotelInfo[1]);
             var availTask = webHotelierPropertiesService.GetHotelAvailabilityAsync(whReq, parsedCheckin, repo, SelectedRates, pars.couponCode);
-            Task.WaitAll(availTask, hotelTask);
+            await Task.WhenAll(availTask, hotelTask);
 
             SingleAvailabilityResponse? availRes = await availTask;
             WHHotelInfoResponse? hotelRes = await hotelTask;
@@ -436,7 +436,7 @@ namespace TravelBridge.API.Endpoints
 
             var hotelTask = webHotelierPropertiesService.GetHotelInfo(hotelInfo[1]);
             var availTask = webHotelierPropertiesService.GetHotelAvailabilityAsync(whReq, parsedCheckin, repo, Selectedrates,reservationRequest.couponCode);
-            Task.WaitAll(availTask, hotelTask);
+            await Task.WhenAll(availTask, hotelTask);
 
             SingleAvailabilityResponse? availRes = await availTask;
             WHHotelInfoResponse? hotelRes = await hotelTask;
@@ -585,7 +585,7 @@ namespace TravelBridge.API.Endpoints
 
             var hotelTask = webHotelierPropertiesService.GetHotelInfo(hotelInfo[1]);
             var availTask = webHotelierPropertiesService.GetHotelAvailabilityAsync(whReq, parsedCheckin, null, Selectedrates);
-            Task.WaitAll(availTask, hotelTask);
+            await Task.WhenAll(availTask, hotelTask);
 
             SingleAvailabilityResponse? availRes = await availTask;
             WHHotelInfoResponse? hotelRes = await hotelTask;
