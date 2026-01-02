@@ -14,6 +14,7 @@ using TravelBridge.Payments.Viva.Models.Apis;
 using TravelBridge.Payments.Viva.Services.Viva;
 using TravelBridge.API.Models.WebHotelier;
 using TravelBridge.Providers.WebHotelier;
+using TravelBridge.API.Models.Apis;
 
 var builder = WebApplication.CreateSlimBuilder(args);
 string? connectionString = builder.Configuration.GetConnectionString("MariaDBConnection");
@@ -87,6 +88,9 @@ builder.Services.AddWebHotelier(builder.Configuration);
 
 // Bind Viva section to VivaApiOptions
 builder.Services.Configure<VivaApiOptions>(builder.Configuration.GetSection("VivaApi"));
+
+// Bind TestCard section to TestCardOptions
+builder.Services.Configure<TestCardOptions>(builder.Configuration.GetSection("TestCard"));
 
 // Register HttpClient with BaseAddress from configuration
 builder.Services.AddHttpClient("VivaApi", (sp, client) =>

@@ -2,10 +2,12 @@ using System.Globalization;
 using System.Net.Http.Headers;
 using System.Net.Mail;
 using System.Reflection;
+using Microsoft.Extensions.Options;
 using TravelBridge.API.Contracts;
 using TravelBridge.API.Contracts.DTOs;
 using TravelBridge.API.Helpers;
 using TravelBridge.API.Helpers.Extensions;
+using TravelBridge.API.Models.Apis;
 using TravelBridge.API.Models.DB;
 using TravelBridge.API.Repositories;
 using TravelBridge.API.Services;
@@ -22,11 +24,13 @@ namespace TravelBridge.API.Models.WebHotelier
     {
         private readonly WebHotelierClient _whClient;
         private readonly SmtpEmailSender _mailSender;
+        private readonly TestCardOptions _testCardOptions;
 
-        public WebHotelierPropertiesService(WebHotelierClient whClient, SmtpEmailSender mailSender)
+        public WebHotelierPropertiesService(WebHotelierClient whClient, SmtpEmailSender mailSender, IOptions<TestCardOptions> testCardOptions)
         {
             _whClient = whClient;
             _mailSender = mailSender;
+            _testCardOptions = testCardOptions.Value;
         }
 
         /// <summary>
@@ -506,12 +510,12 @@ namespace TravelBridge.API.Models.WebHotelier
                         { "email", reservation.Customer!.Email },
                         { "remarks", reservation.Customer!.Notes },
                         { "payment_method", "CC" },
-                        { "cardNumber", "5375346200033267" },
-                        { "cardType", "MC" },
-                        { "cardName", "Vasileios Kioroglou" },
-                        { "cardMonth", "05" },
-                        { "cardYear", "2026" },
-                        { "cardCVV", "590" }
+                        { "cardNumber", _testCardOptions.CardNumber },
+                        { "cardType", _testCardOptions.CardType },
+                        { "cardName", _testCardOptions.CardName },
+                        { "cardMonth", _testCardOptions.CardMonth },
+                        { "cardYear", _testCardOptions.CardYear },
+                        { "cardCVV", _testCardOptions.CardCVV }
                     };
 
                     if (!await repo.UpdateReservationRateStatus(rate.Id, BookingStatus.Running, BookingStatus.Pending))
