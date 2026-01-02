@@ -9,6 +9,6 @@ namespace TravelBridge.Contracts.Common
         public decimal? Longitude { get; set; }
 
         [JsonPropertyName("name")]
-        public string Name { get; set; }
+        public string? Name { get; set; }
     }
 }

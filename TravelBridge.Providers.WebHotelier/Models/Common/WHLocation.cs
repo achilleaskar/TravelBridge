@@ -12,5 +12,5 @@ public class WHLocation
     public decimal? Longitude { get; set; }
 
     [JsonPropertyName("name")]
-    public string Name { get; set; } = string.Empty;
+    public string? Name { get; set; }
 }
