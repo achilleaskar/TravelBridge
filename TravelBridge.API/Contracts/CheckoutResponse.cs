@@ -29,29 +29,13 @@ namespace TravelBridge.API.Contracts
 
         [JsonPropertyName("errorMessage")]
         public string LabelErrorMessage { get; set; }
+        
         public List<PaymentWH> Payments { get; set; }
-        public PartialPayment? PartialPayment { get; private set; }
+        public PartialPayment? PartialPayment { get; set; }
         public string CheckInTime { get; set; }
         public string CheckOutTime { get; set; }
         public string? CouponUsed { get; set; }
         public string? CouponDiscount { get; set; }
         public bool CouponValid { get; set; }
-
-        internal void MergePayments(List<General.SelectedRate> selectedrates)
-        {
-            if (!DateTime.TryParseExact(CheckIn, "dd/MM/yyyy", CultureInfo.InvariantCulture, DateTimeStyles.None, out DateTime checkinDate))
-            {
-                // Handle parse failure here
-            }
-
-            TotalPrice = Rooms.Sum(r => r.TotalPrice);
-            Payments = Rooms.SelectMany(r => r.RateProperties.Payments).ToList();
-            PartialPayment = General.FillPartialPayment(Payments, checkinDate);
-            Payments = [];
-            if (PartialPayment != null && (PartialPayment.prepayAmount + PartialPayment.nextPayments.Sum(a => a.Amount)) != TotalPrice)
-            {
-                throw new InvalidOperationException("Payments calculation failure.");
-            }
-        }
     }
 }

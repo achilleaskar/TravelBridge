@@ -3,18 +3,19 @@ using System.Reflection;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.OpenApi.Models;
 using TravelBridge.API.Contracts;
+using TravelBridge.API.Contracts.DTOs;
 using TravelBridge.API.Helpers;
 using TravelBridge.API.Helpers.Extensions;
+using TravelBridge.API.Models.WebHotelier;
 using TravelBridge.API.Repositories;
-using static TravelBridge.API.Helpers.General;
+using TravelBridge.API.Services;
+using TravelBridge.Contracts.Contracts.Responses;
+using TravelBridge.Contracts.Models.Hotels;
 using TravelBridge.Payments.Viva.Models.ExternalModels;
 using TravelBridge.Payments.Viva.Services.Viva;
 using TravelBridge.Providers.WebHotelier;
-using TravelBridge.API.Models.WebHotelier;
-using TravelBridge.Contracts.Contracts.Responses;
 using TravelBridge.Providers.WebHotelier.Models.Responses;
-using TravelBridge.API.Contracts.DTOs;
-using TravelBridge.Contracts.Models.Hotels;
+using static TravelBridge.API.Helpers.General;
 
 namespace TravelBridge.API.Endpoints
 {
@@ -311,7 +312,7 @@ namespace TravelBridge.API.Endpoints
                 Rooms = GetDistinctRoomsPerRate(availRes.Data?.Rooms)
             };
 
-            if (!availRes.CoversRequest(SelectedRates))
+            if (!AvailabilityProcessor.HasSufficientAvailability(availRes, SelectedRates))
             {
                 return new PreparePaymentResponse
                 {
@@ -355,7 +356,7 @@ namespace TravelBridge.API.Endpoints
                 }
             }
 
-            res.MergePayments(SelectedRates);
+            CheckoutProcessor.CalculatePayments(res);
 
             res.TotalPrice = res.Rooms.Sum(r => (r.TotalPrice * r.SelectedQuantity));
 
@@ -472,7 +473,7 @@ namespace TravelBridge.API.Endpoints
                 SelectedPeople = GetPartyInfo(Selectedrates)
             };
 
-            if (!availRes.CoversRequest(Selectedrates))
+            if (!AvailabilityProcessor.HasSufficientAvailability(availRes, Selectedrates))
             {
                 res.ErrorCode = "Error";
                 res.ErrorMessage = "Not enough rooms";
@@ -517,7 +518,7 @@ namespace TravelBridge.API.Endpoints
                     throw new InvalidOperationException("Rates don't exist any more");
                 }
             }
-            res.MergePayments(Selectedrates);
+            CheckoutProcessor.CalculatePayments(res);
             res.TotalPrice = res.Rooms.Sum(r => (r.TotalPrice * r.SelectedQuantity));
 
             return res;
@@ -621,7 +622,7 @@ namespace TravelBridge.API.Endpoints
                 SelectedPeople = GetPartyInfo(Selectedrates)
             };
 
-            if (!availRes.CoversRequest(Selectedrates))
+            if (!AvailabilityProcessor.HasSufficientAvailability(availRes, Selectedrates))
             {
                 res.ErrorCode = "Error";
                 res.ErrorMessage = "Not enough rooms";
@@ -666,7 +667,8 @@ namespace TravelBridge.API.Endpoints
                     throw new InvalidOperationException("Rates don't exist any more");
                 }
             }
-            res.MergePayments(Selectedrates);
+            
+            CheckoutProcessor.CalculatePayments(res);
             res.TotalPrice = res.Rooms.Sum(r => (r.TotalPrice * r.SelectedQuantity));
 
             return res;
