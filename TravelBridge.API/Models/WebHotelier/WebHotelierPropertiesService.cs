@@ -117,7 +117,7 @@ namespace TravelBridge.API.Models.WebHotelier
                 {
                     return new PluginSearchResponse();
                 }
-                MergedRooms.Results = MergedRooms.CoverRequest(partyList.ToContracts());
+                MergedRooms.Results = AvailabilityProcessor.FilterHotelsByAvailability(MergedRooms, partyList.ToContracts());
                 return MergedRooms;
             }
             catch (HttpRequestException ex)
@@ -177,7 +177,9 @@ namespace TravelBridge.API.Models.WebHotelier
                     finalRes!.Data!.Rates = finalRes.Data.Rates
                         .Where(r => rates.Any(sr => sr.rateId.Equals(r.Id.ToString()) && sr.count > 0)).ToList();
 
-                    if (!finalRes.CoversRequest(partyList))
+                    // Map to response first, then check availability
+                    var mappedResponse = finalRes.MapToResponse(checkinDate, 0, CouponType.none);
+                    if (mappedResponse == null || !AvailabilityProcessor.HasSufficientAvailability(mappedResponse, rates))
                     {
                         return new SingleAvailabilityResponse { ErrorCode = "Error", ErrorMessage = "Not enough rooms", Data = new SingleHotelAvailabilityInfo { Rooms = [] } };
                     }
