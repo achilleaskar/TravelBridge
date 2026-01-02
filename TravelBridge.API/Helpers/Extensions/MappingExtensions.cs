@@ -6,8 +6,6 @@ using TravelBridge.Contracts.Common.Board;
 using TravelBridge.Providers.WebHotelier.Models.Responses;
 using TravelBridge.API.Contracts.DTOs;
 using TravelBridge.Contracts.Models.Hotels;
-using TravelBridge.Contracts.Common;
-using TravelBridge.Contracts.Common.Payments;
 
 namespace TravelBridge.API.Helpers.Extensions
 {
@@ -16,16 +14,15 @@ namespace TravelBridge.API.Helpers.Extensions
         /// <summary>
         /// Maps WebHotelier Hotel array to AutoCompleteHotel collection
         /// </summary>
-        public static IEnumerable<AutoCompleteHotel> MapToAutoCompleteHotels(this Hotel[] hotels)
+        public static IEnumerable<AutoCompleteHotel> MapToAutoCompleteHotels(this WHHotel[] hotels)
         {
-            //TODO: maybe use custom hotel codes stored in our DB for security and privacy
             return hotels.Select(hotel =>
                 new AutoCompleteHotel(
                     hotel.code,
                     Provider.WebHotelier,
                     hotel.name,
-                    hotel.location.name,
-                    hotel.location.country,
+                    hotel.location?.name ?? "",
+                    hotel.location?.country ?? "",
                     hotel.type));
         }
 
@@ -92,14 +89,17 @@ namespace TravelBridge.API.Helpers.Extensions
             return minRate.Retail.TotalPrice;
         }
 
-        public static SingleAvailabilityResponse? MapToResponse(this SingleAvailabilityData data, DateTime checkin, decimal disc, CouponType couponType)
+        public static SingleAvailabilityResponse? MapToResponse(this WHSingleAvailabilityData data, DateTime checkin, decimal disc, CouponType couponType)
         {
             if (data?.Data == null)
             {
                 return null;
             }
 
-            foreach (var rate in data.Data.Rates)
+            // Convert WH rates to Contracts HotelRate for processing
+            var contractsRates = data.Data.Rates.Select(r => r.ToContracts()).ToList();
+
+            foreach (var rate in contractsRates)
             {
                 if (rate.CancellationExpiry?.Date <= DateTime.Now.AddHours(3).Date)
                 {
@@ -119,9 +119,9 @@ namespace TravelBridge.API.Helpers.Extensions
                 {
                     Code = data.Data.Code,
                     Name = data.Data.Name,
-                    Location = data.Data.Location,
-                    Provider = data.Data.Provider,
-                    Rooms = data.Data.Rates.GroupBy(r => r.Type).Select(r => new SingleHotelRoom
+                    Location = data.Data.Location.ToContracts(),
+                    Provider = (Provider)(int)data.Data.Provider,
+                    Rooms = contractsRates.GroupBy(r => r.Type).Select(r => new SingleHotelRoom
                     {
                         Type = r.Key,
                         RoomName = r.First().RoomName,
@@ -159,10 +159,11 @@ namespace TravelBridge.API.Helpers.Extensions
                             RemainingRooms = rate.RemainingRooms
                         }).ToList()
                     }).ToList(),
-                    Alternatives = data.Alternatives.GetFinalPrice(disc, data.Data.Code, couponType)
+                    Alternatives = data.Alternatives.ToContracts().GetFinalPrice(disc, data.Data.Code, couponType)
                 }
             };
         }
+
         public static decimal GetSalePrice(this HotelRate rate)
         {
             decimal saleprice = rate.Retail.TotalPrice + rate.Retail.Discount;

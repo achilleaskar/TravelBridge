@@ -54,7 +54,7 @@ namespace TravelBridge.API.Endpoints
                .WithOpenApi(CustomizeGetHotelAvailabilityOperation);
         }
 
-        private async Task<HotelInfoResponse> GetHotelInfo(string hotelId)
+        private async Task<HotelData> GetHotelInfo(string hotelId)
         {
             if (string.IsNullOrWhiteSpace(hotelId))
             {
@@ -68,8 +68,9 @@ namespace TravelBridge.API.Endpoints
             }
 
             var res = await webHotelierPropertiesService.GetHotelInfo(hotelInfo[1]);
-            res.Data.Provider = TravelBridge.Contracts.Common.Provider.WebHotelier;
-            return res;
+            var contractsData = res.Data!.ToContracts();
+            contractsData.Provider = Provider.WebHotelier;
+            return contractsData;
         }
 
         public async Task<HotelInfoFullResponse> GetHotelFullInfo(string checkin, string checkOut, int? adults, string? children, int? rooms, string? party, string hotelId, ReservationsRepository reservationsRepository)
@@ -131,14 +132,15 @@ namespace TravelBridge.API.Endpoints
             Task.WaitAll(availTask, hotelTask);
 
             SingleAvailabilityResponse? availRes = await availTask;
-            HotelInfoResponse? hotelRes = await hotelTask;
+            WHHotelInfoResponse? hotelRes = await hotelTask;
 
             if (availRes.Data != null)
             {
-                availRes.Data.Provider = TravelBridge.Contracts.Common.Provider.WebHotelier;
+                availRes.Data.Provider = Provider.WebHotelier;
             }
 
-            hotelRes.Data.Provider = TravelBridge.Contracts.Common.Provider.WebHotelier;
+            var hotelData = hotelRes.Data!.ToContracts();
+            hotelData.Provider = Provider.WebHotelier;
 
             int nights = (parsedCheckOut - parsedCheckin).Days;
 
@@ -147,12 +149,12 @@ namespace TravelBridge.API.Endpoints
             var res = new HotelInfoFullResponse
             {
                 ErrorCode = hotelRes.ErrorCode,
-                ErrorMsg = hotelRes.ErrorMsg,
-                HotelData = hotelRes.Data,
+                ErrorMsg = hotelRes.ErrorMessage,
+                HotelData = hotelData,
                 Rooms = availRes.Data?.Rooms ?? [],
                 Alternatives = availRes.Data?.Alternatives ?? []
             };
-            res.HotelData.CustomInfo = GetHotelBasicInfo(availRes, hotelRes);
+            res.HotelData.CustomInfo = GetHotelBasicInfo(availRes, hotelData);
             res.HotelData.MinPrice = Math.Floor(availRes.Data?.GetMinPrice(out salePrice) ?? 0);
             res.HotelData.SalePrice = salePrice;
             res.HotelData.MinPricePerNight = Math.Floor(res.HotelData.MinPrice / nights);
@@ -163,9 +165,9 @@ namespace TravelBridge.API.Endpoints
             return res;
         }
 
-        private string GetHotelBasicInfo(SingleAvailabilityResponse availRes, HotelInfoResponse hotelRes)
+        private string GetHotelBasicInfo(SingleAvailabilityResponse availRes, HotelData hotelData)
         {
-            string response = GenerateHtml(hotelRes.Data.Operation);
+            string response = GenerateHtml(hotelData.Operation);
             return response;
         }
 
@@ -178,7 +180,7 @@ namespace TravelBridge.API.Endpoints
                   </ul>";
         }
 
-        private async Task<RoomInfoResponse> GetRoomInfo(string hotelId, string roomId)
+        private async Task<RoomInfo> GetRoomInfo(string hotelId, string roomId)
         {
             if (string.IsNullOrWhiteSpace(hotelId))
             {
@@ -197,7 +199,7 @@ namespace TravelBridge.API.Endpoints
             }
 
             var res = await webHotelierPropertiesService.GetRoomInfo(hotelInfo[1], roomId);
-            return res;
+            return res.Data!.ToContracts();
         }
 
         private async Task<SingleAvailabilityResponse> GetHotelAvailability(string checkin, string checkOut, int? adults, string? children, int? rooms, string? party, string hotelId, ReservationsRepository reservationsRepository)
@@ -253,7 +255,7 @@ namespace TravelBridge.API.Endpoints
             
             if (res.Data != null)
             {
-                res.Data.Provider = TravelBridge.Contracts.Common.Provider.WebHotelier;
+                res.Data.Provider = Provider.WebHotelier;
             }
 
             return res;
@@ -339,8 +341,8 @@ namespace TravelBridge.API.Endpoints
             {
                 var parameterDetails = new Dictionary<string, (string Description, object Example, bool Required)>
                 {
-                    { "checkin", ("The check-in date for the search (format: dd/MM/yyyy).", "15/06/2025", true) },
-                    { "checkOut", ("The check-out date for the search (format: dd/MM/yyyy).", "20/06/2025", true) },
+                    { "checkin", ("The check-in date for the search (format: dd/MM/yyyy).", "15/06/2026", true) },
+                    { "checkOut", ("The check-out date for the search (format: dd/MM/yyyy).", "20/06/2026", true) },
                     { "adults", ("The number of adults for the search. (only if 1 room)", 2, false) },
                     { "children", ("The ages of children, comma-separated (e.g., '5,10'). (only if 1 room)", "", false) },
                     { "rooms", ("The number of rooms required. (only if one room)", 1, false) },

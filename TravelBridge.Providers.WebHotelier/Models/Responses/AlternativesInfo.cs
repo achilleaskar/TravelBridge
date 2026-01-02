@@ -1,7 +1,10 @@
 namespace TravelBridge.Providers.WebHotelier.Models.Responses
 {
-    public class AlternativesInfo
+    /// <summary>
+    /// WebHotelier wire model for alternatives info container.
+    /// </summary>
+    public class WHAlternativesInfo
     {
-        public List<AlternativeDayInfo> days { get; set; }
+        public List<WHAlternativeDayInfo> days { get; set; } = [];
     }
 }

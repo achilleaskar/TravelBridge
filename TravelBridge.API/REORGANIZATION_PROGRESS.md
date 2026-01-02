@@ -1,148 +1,180 @@
-# Model Reorganization Progress - FINAL STATUS
+Yes — and the clean way to do it (without drowning in duplicates) is to **stop treating provider DTOs as “your” API models** and introduce a *single seam*: an **Anti-Corruption Layer (ACL)** = mapping boundary.
 
-## ✅ COMPLETED - ALL BATCHES
+Right now your pain is because models are doing **triple duty**:
 
-### Folder Structure Created
-- **TravelBridge.Providers.WebHotelier/Models/** ✅
-  - Responses/ ✅
-  - Hotel/ ✅
-  - Room/ ✅
-  - Rate/ ✅
-  - Payment/ ✅
-  - Policies/ ✅
-  - Board/ ✅
+1. **Provider wire DTOs** (WebHotelier JSON shapes)
+2. **Your internal business data** (payments logic, coupon logic, etc.)
+3. **Public API contracts** (what WordPress plugin consumes)
 
-- **TravelBridge.API/Contracts/** ✅
-  - Responses/ ✅
-  - DTOs/ ✅
+When one class plays all 3 roles, you can’t separate projects without everything pulling everything.
 
 ---
 
-## 📦 FILES SUCCESSFULLY MOVED
+## The separation that actually works
 
-### Batch 1: WebHotelier Response Models (9 files) ✅
-**Moved to: TravelBridge.Providers.WebHotelier/Models/Responses/**
-1. ✅ AlternativeDayInfo.cs
-2. ✅ AlternativeDaysData.cs
-3. ✅ AlternativesInfo.cs
-4. ✅ BookingResponse.cs
-5. ✅ Data.cs
-6. ✅ HotelInfoResponse.cs
-7. ✅ MultiAvailabilityResponse.cs
-8. ✅ RoomInfoResponse.cs (**FIXED TYPO** from RoomInfoRespone)
-9. ✅ SingleAvailabilityData.cs
+### 1) Three model sets (with strict ownership)
 
-### Batch 2: WebHotelier Hotel Models (5 files) ✅
-**Moved to: TravelBridge.Providers.WebHotelier/Models/Hotel/**
-10. ✅ HotelData.cs
-11. ✅ HotelOperation.cs
-12. ✅ Location.cs
-13. ✅ LocationInfo.cs
-14. ✅ PhotoInfo.cs
+**A. API Contracts (public)** – `TravelBridge.Contracts`
 
-### Batch 3: WebHotelier Room Models (3 files) ✅
-**Moved to: TravelBridge.Providers.WebHotelier/Models/Room/**
-15. ✅ RoomCapacity.cs
-16. ✅ RoomInfo.cs
-17. ✅ SingleHotelRoom.cs
+* Only request/response DTOs for your endpoints
+* **No provider types, no DB types, no helper methods**
+* Can have `[JsonPropertyName]` to preserve exact JSON shape for WP plugin
 
-### Batch 4: WebHotelier Rate Models (3 files) ✅
-**Moved to: TravelBridge.Providers.WebHotelier/Models/Rate/**
-18. ✅ MultiRate.cs
-19. ✅ RateProperties.cs
-20. ✅ SingleHotelRate.cs
+**B. Provider DTOs (wire)** – `TravelBridge.Providers.WebHotelier`
 
-### Batch 5: WebHotelier Payment Models (4 files) ✅
-**Moved to: TravelBridge.Providers.WebHotelier/Models/Payment/**
-21. ✅ PartialPayment.cs
-22. ✅ PaymentWH.cs
-23. ✅ PricingInfo.cs
-24. ✅ StringAmount.cs
+* DTOs that match WebHotelier request/response JSON
+* Mark as `internal` whenever possible (prevents leaks)
 
-### Batch 6: WebHotelier Policy Models (2 files) ✅
-**Moved to: TravelBridge.Providers.WebHotelier/Models/Policies/**
-25. ✅ CancellationFee.cs
-26. ✅ ChildrenPolicy.cs
+**C. Application/Domain models (internal)** – `TravelBridge.Application` (or `Domain`)
 
-### Batch 7: WebHotelier Board Models (2 files) ✅
-**Moved to: TravelBridge.Providers.WebHotelier/Models/Board/**
-27. ✅ Board.cs
-28. ✅ BoardTextBase.cs
+* “Business meaning” objects: availability results, payment schedule, reservation draft, etc.
 
-### Batch 8: API Response Models (4 files) ✅
-**Moved to: TravelBridge.API/Contracts/Responses/**
-29. ✅ PreparePaymentResponse.cs
-30. ✅ SuccessfulPaymentResponse.cs (**FIXED TYPO** from SuccessfullPaymentResponse)
-31. ✅ DataSuccess.cs (**FIXED TYPO** from DataSucess)
-32. ✅ HotelInfoFullResponse.cs
-
-### Batch 9: API DTOs (4 files) ✅
-**Moved to: TravelBridge.API/Contracts/DTOs/**
-33. ✅ CheckoutHotelInfo.cs
-34. ✅ CheckoutRateProperties.cs
-35. ✅ CheckoutRoomInfo.cs
-36. ✅ SingleHotelAvailabilityInfo.cs
+**Rule:** providers output **Application models**, not API DTOs.
 
 ---
 
-## ⚠️ FILES INTENTIONALLY SKIPPED (Require Review)
+## The trick to decouple without rewriting the plugin JSON
 
-These files are **heavily used across multiple layers** and need careful consideration:
+### Use “shadow DTOs” for the API
 
-### Still in TravelBridge.API/Contracts/ - Need Review:
-1. **HotelInfo.cs** - Used in responses AND service layer
-2. **HotelRate.cs** - Used across multiple contexts
-3. **WebHotel.cs** - Core model used everywhere
-4. **CheckoutResponse.cs** - Uses many cross-referenced models
-5. **PluginSearchResponse.cs** - Aggregates many models
-6. **SingleAvailabilityResponse.cs** - Complex dependencies
-7. **Alternative.cs** - Used in both WebHotelier AND API responses
+Create API DTOs that look **exactly** like what you return today, but *do not reference provider classes*.
 
----
+Example: you currently return WebHotelier-ish stuff in `CheckoutResponse` (`PaymentWH`, `PartyItem`, `HotelOperation`, `BaseWebHotelierResponse`, etc.).
 
-## 📊 FINAL SUMMARY
+Do this instead:
 
-- **Total Files Moved**: 36 files ✅
-- **Files Skipped for Review**: 7 files ⚠️
-- **Typos Fixed**: 3
-  1. RoomInfoRespone → RoomInfoResponse
-  2. SuccessfullPaymentResponse → SuccessfulPaymentResponse
-  3. DataSucess → DataSuccess
+* `Contracts/Checkout/CheckoutResponseDto.cs` (pure)
+* `Application/Checkout/CheckoutResult.cs` (internal meaning)
+* `Providers.WebHotelier/...` maps WH wire → `CheckoutResult`
+* API maps `CheckoutResult` → `CheckoutResponseDto`
 
-### Completion Rate
-- **Clear WebHotelier Models**: 100% moved (28 files)
-- **Clear API Models**: 100% moved (8 files)
-- **Cross-Referenced Models**: 0% moved (7 files - awaiting review)
+This gives you separation while keeping output identical.
 
 ---
 
-## ⏭️ NEXT STEPS
+## How to split “model used for provider mapping AND API response”
 
-### Step 1: Review Skipped Files
-Decide placement for the 7 heavily cross-referenced files:
-- **HotelInfo.cs** - Consider: Keep in Provider or duplicate for API?
-- **HotelRate.cs** - Consider: Common model or split into provider/API versions?
-- **WebHotel.cs** - Consider: Provider-specific but used in API responses
-- **Alternative.cs** - Consider: Move to Common or keep in API?
-- **Response models** - May need to stay in API or be refactored
+### Don’t duplicate “API vs WH” unless necessary
 
-### Step 2: Update Using Statements
-After finalizing placement, update all `using` statements across:
-- TravelBridge.API
-- TravelBridge.Providers.WebHotelier
-- Any other projects referencing moved models
+Instead:
 
-### Step 3: Build & Test
-- Run full solution build
-- Fix any compilation errors
-- Run tests to ensure no breaking changes
+* Keep **one API contract** (what client sees)
+* Keep provider DTOs private to provider project
+* Write mapping code
+
+So for your examples:
+
+### ✅ AutoCompleteHotel / AutoCompleteLocation
+
+Keep **ONE** API DTO in `Contracts`:
+
+* `AutoCompleteHotel`
+* `AutoCompleteLocation`
+
+Providers map into these (or into Application models first).
+
+Only split if you truly need provider-only fields.
 
 ---
 
-## 🎯 REORGANIZATION BENEFITS ACHIEVED
+## How to split “models used for BOTH API requests AND provider service calls”
 
-✅ **Clear separation** of WebHotelier provider models  
-✅ **Organized** API-specific responses and DTOs  
-✅ **Fixed naming** inconsistencies (typos)  
-✅ **Improved** maintainability with logical folder structure  
-✅ **Ready for** additional providers (MapBox, HereMaps, etc.)
+### Requests: keep API request, map to provider request
+
+Keep:
+
+* `MultiAvailabilityRequest` (API contract)
+* `SingleAvailabilityRequest` (API contract)
+
+Provider adapters should NOT accept these directly long-term.
+
+Instead add Application commands:
+
+* `SearchAvailabilityQuery`
+* `GetHotelAvailabilityQuery`
+
+API maps request DTO → query
+Provider maps query → WH request DTO
+
+This avoids having to create `WHMultiAvailabilityRequest` unless WebHotelier actually requires a very different shape.
+
+---
+
+## Practical steps (the “I can do this without madness” plan)
+
+### Step 1 — Stop leaking provider types by making them `internal`
+
+In provider projects:
+
+* make all WH wire models `internal class ...`
+* keep only the adapter class public (e.g., `WebHotelierHotelProvider`)
+
+This forces you to map at the boundary (compiler helps).
+
+### Step 2 — Pick ONE endpoint and create its API “shadow DTO”
+
+Start with the worst offender (usually `CheckoutResponse`, `PluginSearchResponse`, `BookingResponse`).
+
+For each, create a **pure** DTO in `TravelBridge.Contracts` that matches your current JSON.
+
+Tip: **copy the class and replace provider types** gradually:
+
+* `PaymentWH` → `PaymentDto`
+* `PartyItem` → `PartyDto`
+* `HotelOperation` → `HotelOperationDto`
+* remove inheritance like `BaseWebHotelierResponse` → use composition (e.g. `Error`, `IsSuccess`)
+
+### Step 3 — Mapping layer (two-stage)
+
+* Provider returns `CheckoutResult` (Application model)
+* API returns `CheckoutResponseDto` (Contracts)
+
+So you don’t have to map provider → API directly everywhere.
+
+### Step 4 — Move all business logic OUT of DTOs
+
+Anything like `MergePayments()`, coupon checks, etc. must move to:
+
+* Application service (e.g. `CheckoutComposer`)
+* or extension methods in Application
+
+DTOs should be “dumb bags of data”.
+
+### Step 5 — Enforce “Contracts must not reference Providers”
+
+In csproj terms:
+
+* `TravelBridge.Contracts` references nothing
+* `TravelBridge.Providers.*` may reference `TravelBridge.Application`
+* `TravelBridge.API` references everything
+
+This is the safety net.
+
+---
+
+## A super practical shortcut that reduces work a lot
+
+When a provider model is currently embedded deep in responses (like WH payments/cancellation), use a **flattened API type** and keep extra provider fields in a bag temporarily:
+
+```csharp
+public sealed class PaymentDto
+{
+    public string DueDate { get; set; } = default!;
+    public decimal Amount { get; set; }
+    public Dictionary<string, object>? ProviderMeta { get; set; } // temporary escape hatch
+}
+```
+
+This lets you separate now without losing data, then clean it later.
+
+---
+
+## If you want, I’ll make it concrete on *your* code
+
+Send me one of the worst response models you currently return (paste the class, e.g. `CheckoutResponse` or `PluginSearchResponse`) and I’ll:
+
+* design the **pure API DTO** version
+* design the **Application model** version
+* give you the **exact mapping methods** (minimal changes, same JSON)
+
+That’s the fastest way to break the WebHotelier model dependency chain without duplicating everything blindly.

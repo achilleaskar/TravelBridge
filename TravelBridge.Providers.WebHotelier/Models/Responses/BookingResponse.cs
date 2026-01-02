@@ -1,17 +1,21 @@
-using TravelBridge.Contracts.Contracts;
-
 namespace TravelBridge.Providers.WebHotelier.Models.Responses
 {
-    public class BookingResponse : BaseWebHotelierResponse
+    /// <summary>
+    /// WebHotelier wire response for booking.
+    /// </summary>
+    public class WHBookingResponse : WHBaseResponse
     {
-        public BookingData data { get; set; }
+        public WHBookingData? data { get; set; }
+    }
 
-        public class BookingData
-        {
-            public string summaryUrl { get; set; }
-            public int res_id { get; set; }
-            public string email { get; set; }
-            public string result { get; set; }
-        }
+    /// <summary>
+    /// WebHotelier wire model for booking data.
+    /// </summary>
+    public class WHBookingData
+    {
+        public string summaryUrl { get; set; } = string.Empty;
+        public int res_id { get; set; }
+        public string email { get; set; } = string.Empty;
+        public string result { get; set; } = string.Empty;
     }
 }

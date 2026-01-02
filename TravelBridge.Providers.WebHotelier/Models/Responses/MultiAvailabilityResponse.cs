@@ -1,10 +1,10 @@
-using TravelBridge.Contracts.Contracts;
+namespace TravelBridge.Providers.WebHotelier.Models.Responses;
 
-namespace TravelBridge.Providers.WebHotelier.Models.Responses
+/// <summary>
+/// WebHotelier wire response for multi-availability search.
+/// </summary>
+public class WHMultiAvailabilityResponse : WHBaseResponse
 {
-    public class MultiAvailabilityResponse : BaseWebHotelierResponse
-    {
-        [JsonPropertyName("data")]
-        public Data Data { get; set; }
-    }
+    [JsonPropertyName("data")]
+    public WHData? Data { get; set; }
 }

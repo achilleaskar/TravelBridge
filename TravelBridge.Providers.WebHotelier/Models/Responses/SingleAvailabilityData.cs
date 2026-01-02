@@ -1,39 +1,40 @@
-using TravelBridge.Contracts.Contracts;
+namespace TravelBridge.Providers.WebHotelier.Models.Responses;
 
-namespace TravelBridge.Providers.WebHotelier.Models.Responses
+/// <summary>
+/// WebHotelier wire response for single hotel availability.
+/// </summary>
+public class WHSingleAvailabilityData : WHBaseResponse
 {
-    public class SingleAvailabilityData : BaseWebHotelierResponse
+    [JsonPropertyName("data")]
+    public WHHotelInfo? Data { get; set; }
+
+    public List<WHAlternative> Alternatives { get; set; } = [];
+
+    public bool CoversRequest(List<WHPartyItem>? partyList)
     {
-        [JsonPropertyName("data")]
-        public HotelInfo Data { get; set; }
+        if (partyList == null || Data?.Rates == null)
+            return false;
 
-        public List<Alternative> Alternatives { get;  set; }
-
-        public bool CoversRequest(List<PartyItem>? partyList)
+        if (partyList.Sum(a => a.RoomsCount) > Data.Rates.DistinctBy(h => h.Type).Sum(s => s.RemainingRooms))
         {
-            if (partyList.Sum(a => a.RoomsCount) > Data.Rates.DistinctBy(h => h.Type).Sum(s => s.RemainingRooms))
-            {
-                return false;
-            }
-            else
-            {
-                foreach (var party in partyList)
-                {
-                    if (party.RoomsCount <= (
-                        Data.Rates
-                        .Where(r => r.SearchParty?.Equals(party) == true)
-                        .GroupBy(r => r.Type)
-                        .Select(g => g.First())
-                        .Sum(s => s.RemainingRooms) ?? 0
-                        )
-                    )
-                    {
-                        continue;
-                    }
-                    return false;
-                }
-            }
-            return true;
+            return false;
         }
+
+        foreach (var party in partyList)
+        {
+            if (party.RoomsCount <= (
+                Data.Rates
+                .Where(r => r.SearchParty?.Equals(party) == true)
+                .GroupBy(r => r.Type)
+                .Select(g => g.First())
+                .Sum(s => s.RemainingRooms) ?? 0
+                )
+            )
+            {
+                continue;
+            }
+            return false;
+        }
+        return true;
     }
 }
