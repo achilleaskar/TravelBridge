@@ -93,158 +93,205 @@ namespace TravelBridge.API.Endpoints
 
         private async Task<object> GetAllProperties(string? type)
         {
-            var whHotels = await webHotelierPropertiesService.GetAllPropertiesFromWebHotelierAsync();
-            var Hotels = whHotels.MapToAutoCompleteHotels().ToList();
+            logger.LogInformation("GetAllProperties started, Type filter: {Type}", type ?? "none");
+            var stopwatch = System.Diagnostics.Stopwatch.StartNew();
 
-            foreach (var h in Hotels)
+            try
             {
-                h.MappedTypes = h.OriginalType.MapToType();
-            }
+                var whHotels = await webHotelierPropertiesService.GetAllPropertiesFromWebHotelierAsync();
+                logger.LogDebug("GetAllProperties: Retrieved {Count} hotels from WebHotelier", whHotels?.Length ?? 0);
 
-            var groupedHotels = GroupHotelsByCategory(Hotels);
+                var Hotels = whHotels.MapToAutoCompleteHotels().ToList();
 
-            var Filters = new List<Filter>
-            {
-                 new ("Τύποι Καταλυμμάτων","hotelTypes",groupedHotels.Select(h => new FilterValue
-                        {
-                            Id = h.Key,
-                            Name = h.Key,
-                            Count = h.Value.Count
-                        }).ToList(),false)
-            };
+                foreach (var h in Hotels)
+                {
+                    h.MappedTypes = h.OriginalType.MapToType();
+                }
 
-            if (string.IsNullOrEmpty(type))
-            {
+                var groupedHotels = GroupHotelsByCategory(Hotels);
+
+                var Filters = new List<Filter>
+                {
+                     new ("Τύποι Καταλυμμάτων","hotelTypes",groupedHotels.Select(h => new FilterValue
+                            {
+                                Id = h.Key,
+                                Name = h.Key,
+                                Count = h.Value.Count
+                            }).ToList(),false)
+                };
+
+                stopwatch.Stop();
+
+                if (string.IsNullOrEmpty(type))
+                {
+                    logger.LogInformation("GetAllProperties completed in {ElapsedMs}ms, returning {Count} hotels (limited to 50)", 
+                        stopwatch.ElapsedMilliseconds, Math.Min(Hotels.Count, 50));
+                    return new
+                    {
+                        Hotels = Hotels.Take(50),
+                        Filters
+                    };
+                }
+
+                List<AutoCompleteHotel>? HotelsOfType = null;
+
+                if (!string.IsNullOrEmpty(type))
+                {
+                    groupedHotels.TryGetValue(type, out HotelsOfType);
+                }
+
+                logger.LogInformation("GetAllProperties completed in {ElapsedMs}ms, Type: {Type}, returning {Count} hotels", 
+                    stopwatch.ElapsedMilliseconds, type, HotelsOfType?.Count ?? 0);
+
                 return new
                 {
-                    Hotels = Hotels.Take(50),
+                    Hotels = HotelsOfType ?? new(),
                     Filters
                 };
             }
-
-            List<AutoCompleteHotel>? HotelsOfType = null;
-
-            if (!string.IsNullOrEmpty(type))
+            catch (Exception ex)
             {
-                groupedHotels.TryGetValue(type, out HotelsOfType);
+                stopwatch.Stop();
+                logger.LogError(ex, "GetAllProperties failed after {ElapsedMs}ms", stopwatch.ElapsedMilliseconds);
+                throw;
             }
-
-            return new
-            {
-                Hotels = HotelsOfType ?? new(),
-                Filters
-            };
         }
 
         private async Task<PluginSearchResponse> GetSearchResults(SubmitSearchParameters pars)
         {
-            #region Param Validation
+            logger.LogInformation("GetSearchResults started - SearchTerm: {SearchTerm}, CheckIn: {CheckIn}, CheckOut: {CheckOut}, Bbox: {Bbox}, Adults: {Adults}, Rooms: {Rooms}, Page: {Page}", 
+                pars.searchTerm, pars.checkin, pars.checkOut, pars.bbox, pars.adults, pars.rooms, pars.page);
+            var stopwatch = System.Diagnostics.Stopwatch.StartNew();
 
-            if (!DateTime.TryParseExact(pars.checkin, "dd/MM/yyyy", CultureInfo.InvariantCulture, DateTimeStyles.None, out var parsedCheckin))
+            try
             {
-                throw new InvalidCastException("Invalid checkin date format. Use dd/MM/yyyy.");
-            }
+                #region Param Validation
 
-            if (!DateTime.TryParseExact(pars.checkOut, "dd/MM/yyyy", CultureInfo.InvariantCulture, DateTimeStyles.None, out var parsedCheckOut))
-            {
-                throw new InvalidCastException("Invalid checkout date format. Use dd/MM/yyyy.");
-            }
-
-            var location = pars.bbox.Split('-');
-            if (location.Length != 3)
-            {
-                throw new ArgumentException("Invalid bbox format. Use bbox-lat-lon.");
-            }
-
-            string party;
-            BBox bboxO = TryGetBBox(location[0]);
-            if (string.IsNullOrWhiteSpace(pars.party))
-            {
-                if (pars.rooms != 1)
+                if (!DateTime.TryParseExact(pars.checkin, "dd/MM/yyyy", CultureInfo.InvariantCulture, DateTimeStyles.None, out var parsedCheckin))
                 {
-                    throw new InvalidOperationException("when room greated than 1 party must be used");
+                    logger.LogWarning("GetSearchResults failed: Invalid checkin date format {CheckIn}", pars.checkin);
+                    throw new InvalidCastException("Invalid checkin date format. Use dd/MM/yyyy.");
                 }
 
-                if (pars.adults == null || pars.adults < 1)
+                if (!DateTime.TryParseExact(pars.checkOut, "dd/MM/yyyy", CultureInfo.InvariantCulture, DateTimeStyles.None, out var parsedCheckOut))
                 {
-                    throw new ArgumentException("There must be at least one adult in the room.");
+                    logger.LogWarning("GetSearchResults failed: Invalid checkout date format {CheckOut}", pars.checkOut);
+                    throw new InvalidCastException("Invalid checkout date format. Use dd/MM/yyyy.");
                 }
 
-                party = CreateParty(pars.adults.Value, pars.children);
-            }
-            else
-            {
-                party = BuildMultiRoomJson(pars.party);
-            }
-
-            #endregion Param Validation
-
-            MultiAvailabilityRequest req = new()
-            {
-                CheckIn = parsedCheckin.ToString("yyyy-MM-dd"),
-                CheckOut = parsedCheckOut.ToString("yyyy-MM-dd"),
-                BottomLeftLatitude = bboxO.BottomLeftLatitude,
-                TopRightLatitude = bboxO.TopRightLatitude,
-                BottomLeftLongitude = bboxO.BottomLeftLongitude,
-                TopRightLongitude = bboxO.TopRightLongitude,
-                Lat = location[1],
-                Lon = location[2],
-                Party = party
-            };
-            //TODO check sorting after merge
-
-            HandleSorting(pars.sorting, req);
-
-            int skip = (pars.page ?? 0) * 20;
-
-            WHAvailabilityRequest whReq = new()
-            {
-                CheckIn = req.CheckIn,
-                CheckOut = req.CheckOut,
-                Party = req.Party,
-                Lat = req.Lat,
-                Lon = req.Lon,
-                BottomLeftLatitude = req.BottomLeftLatitude,
-                TopRightLatitude = req.TopRightLatitude,
-                BottomLeftLongitude = req.BottomLeftLongitude,
-                TopRightLongitude = req.TopRightLongitude,
-                SortBy = req.SortBy,
-                SortOrder = req.SortOrder
-            };
-
-            var res = await webHotelierPropertiesService.GetAvailabilityAsync(whReq)
-                ?? new PluginSearchResponse
+                var location = pars.bbox.Split('-');
+                if (location.Length != 3)
                 {
-                    Results = new List<WebHotel>(),
-                    Filters = new(),
+                    logger.LogWarning("GetSearchResults failed: Invalid bbox format {Bbox}", pars.bbox);
+                    throw new ArgumentException("Invalid bbox format. Use bbox-lat-lon.");
+                }
+
+                string party;
+                BBox bboxO = TryGetBBox(location[0]);
+                if (string.IsNullOrWhiteSpace(pars.party))
+                {
+                    if (pars.rooms != 1)
+                    {
+                        logger.LogWarning("GetSearchResults failed: Party required when rooms > 1, Rooms: {Rooms}", pars.rooms);
+                        throw new InvalidOperationException("when room greated than 1 party must be used");
+                    }
+
+                    if (pars.adults == null || pars.adults < 1)
+                    {
+                        logger.LogWarning("GetSearchResults failed: At least one adult required, Adults: {Adults}", pars.adults);
+                        throw new ArgumentException("There must be at least one adult in the room.");
+                    }
+
+                    party = CreateParty(pars.adults.Value, pars.children);
+                }
+                else
+                {
+                    party = BuildMultiRoomJson(pars.party);
+                }
+
+                #endregion Param Validation
+
+                logger.LogDebug("GetSearchResults: Params validated, fetching availability from WebHotelier");
+
+                MultiAvailabilityRequest req = new()
+                {
+                    CheckIn = parsedCheckin.ToString("yyyy-MM-dd"),
+                    CheckOut = parsedCheckOut.ToString("yyyy-MM-dd"),
+                    BottomLeftLatitude = bboxO.BottomLeftLatitude,
+                    TopRightLatitude = bboxO.TopRightLatitude,
+                    BottomLeftLongitude = bboxO.BottomLeftLongitude,
+                    TopRightLongitude = bboxO.TopRightLongitude,
+                    Lat = location[1],
+                    Lon = location[2],
+                    Party = party
                 };
 
-            res.SearchTerm = pars.searchTerm;
-            int nights = (parsedCheckOut - parsedCheckin).Days;
-            //ApplyPriceFilters(res, pars);
-            FillFilters(res, nights);
-            ApplyFilters(res, pars);
-            SetBoardText(res);
-            CalculateAppliedFilters(res);
-            SetSelectedFilters(res, pars);
+                HandleSorting(pars.sorting, req);
 
-            if (string.IsNullOrWhiteSpace(pars.sorting) || StringToEnum.ParseEnumFromDescription<SortOption>(pars.sorting ?? "") == SortOption.PriceAsc)
-                res.Results = res.Results.OrderBy(h => h.MinPrice).ToList();
-            else if (StringToEnum.ParseEnumFromDescription<SortOption>(pars.sorting ?? "") == SortOption.PriceDesc)
-                res.Results = res.Results.OrderByDescending(h => h.MinPrice).ToList();
+                int skip = (pars.page ?? 0) * 20;
 
-            res.ResultsCount = res?.Results?.Count() ?? 0;
-            if (res?.ResultsCount > 0)
-                foreach (var hotel in res?.Results)
+                WHAvailabilityRequest whReq = new()
                 {
-                    hotel.Rates = new List<MultiRate>();
+                    CheckIn = req.CheckIn,
+                    CheckOut = req.CheckOut,
+                    Party = req.Party,
+                    Lat = req.Lat,
+                    Lon = req.Lon,
+                    BottomLeftLatitude = req.BottomLeftLatitude,
+                    TopRightLatitude = req.TopRightLatitude,
+                    BottomLeftLongitude = req.BottomLeftLongitude,
+                    TopRightLongitude = req.TopRightLongitude,
+                    SortBy = req.SortBy,
+                    SortOrder = req.SortOrder
+                };
+
+                var res = await webHotelierPropertiesService.GetAvailabilityAsync(whReq)
+                    ?? new PluginSearchResponse
+                    {
+                        Results = new List<WebHotel>(),
+                        Filters = new(),
+                    };
+
+                logger.LogDebug("GetSearchResults: Received {Count} results from WebHotelier", res.Results?.Count() ?? 0);
+
+                res.SearchTerm = pars.searchTerm;
+                int nights = (parsedCheckOut - parsedCheckin).Days;
+                FillFilters(res, nights);
+                ApplyFilters(res, pars);
+                SetBoardText(res);
+                CalculateAppliedFilters(res);
+                SetSelectedFilters(res, pars);
+
+                if (string.IsNullOrWhiteSpace(pars.sorting) || StringToEnum.ParseEnumFromDescription<SortOption>(pars.sorting ?? "") == SortOption.PriceAsc)
+                    res.Results = res.Results.OrderBy(h => h.MinPrice).ToList();
+                else if (StringToEnum.ParseEnumFromDescription<SortOption>(pars.sorting ?? "") == SortOption.PriceDesc)
+                    res.Results = res.Results.OrderByDescending(h => h.MinPrice).ToList();
+
+                res.ResultsCount = res?.Results?.Count() ?? 0;
+                if (res?.ResultsCount > 0)
+                    foreach (var hotel in res?.Results)
+                    {
+                        hotel.Rates = new List<MultiRate>();
+                    }
+
+                if (res.Results.IsNullOrEmpty())
+                {
+                    res.Filters = new List<Filter>();
                 }
 
-            if (res.Results.IsNullOrEmpty())
-            {
-                res.Filters = new List<Filter>();
+                stopwatch.Stop();
+                logger.LogInformation("GetSearchResults completed in {ElapsedMs}ms - SearchTerm: {SearchTerm}, ResultsCount: {ResultsCount}, FiltersCount: {FiltersCount}", 
+                    stopwatch.ElapsedMilliseconds, pars.searchTerm, res.ResultsCount, res.Filters?.Count ?? 0);
+
+                return res;
             }
-            return res;
+            catch (Exception ex) when (ex is not InvalidCastException && ex is not ArgumentException && ex is not InvalidOperationException)
+            {
+                stopwatch.Stop();
+                logger.LogError(ex, "GetSearchResults failed for SearchTerm: {SearchTerm} after {ElapsedMs}ms", 
+                    pars.searchTerm, stopwatch.ElapsedMilliseconds);
+                throw;
+            }
         }
 
         private static void SetBoardText(PluginSearchResponse res)
@@ -570,26 +617,45 @@ namespace TravelBridge.API.Endpoints
 
         private async Task<AutoCompleteResponse> GetAutocompleteResults(string? searchQuery)
         {
-            logger.LogInformation("Autocomplete search query: {searchQuery}", searchQuery);
+            logger.LogInformation("GetAutocompleteResults started for SearchQuery: {SearchQuery}", searchQuery);
+            var stopwatch = System.Diagnostics.Stopwatch.StartNew();
 
-            if (string.IsNullOrWhiteSpace(searchQuery) || searchQuery.Length < 3)
+            try
             {
-                return new AutoCompleteResponse
+                if (string.IsNullOrWhiteSpace(searchQuery) || searchQuery.Length < 3)
                 {
-                    Hotels = [],
-                    Locations = []
+                    logger.LogDebug("GetAutocompleteResults: Search query too short (< 3 chars), returning empty result");
+                    return new AutoCompleteResponse
+                    {
+                        Hotels = [],
+                        Locations = []
+                    };
+                }
+
+                logger.LogDebug("GetAutocompleteResults: Searching hotels and locations for: {SearchQuery}", searchQuery);
+                var hotelsTask = webHotelierPropertiesService.SearchPropertyFromWebHotelierAsync(searchQuery);
+                var locationsTask = mapBoxService.GetLocationsAsync(searchQuery, "el");
+                await Task.WhenAll(hotelsTask, locationsTask);
+
+                var result = new AutoCompleteResponse
+                {
+                    Hotels = hotelsTask.Result.MapToAutoCompleteHotels(),
+                    Locations = locationsTask.Result
                 };
+
+                stopwatch.Stop();
+                logger.LogInformation("GetAutocompleteResults completed in {ElapsedMs}ms for SearchQuery: {SearchQuery}, HotelsCount: {HotelsCount}, LocationsCount: {LocationsCount}", 
+                    stopwatch.ElapsedMilliseconds, searchQuery, result.Hotels?.Count() ?? 0, result.Locations?.Count() ?? 0);
+
+                return result;
             }
-
-            var hotelsTask = webHotelierPropertiesService.SearchPropertyFromWebHotelierAsync(searchQuery);
-            var locationsTask = mapBoxService.GetLocationsAsync(searchQuery, "el");
-            await Task.WhenAll(hotelsTask, locationsTask);
-
-            return new AutoCompleteResponse
+            catch (Exception ex)
             {
-                Hotels = hotelsTask.Result.MapToAutoCompleteHotels(),
-                Locations = locationsTask.Result
-            };
+                stopwatch.Stop();
+                logger.LogError(ex, "GetAutocompleteResults failed for SearchQuery: {SearchQuery} after {ElapsedMs}ms", 
+                    searchQuery, stopwatch.ElapsedMilliseconds);
+                throw;
+            }
         }
 
         private static OpenApiOperation CustomizeAutoCompleteOperation(OpenApiOperation operation)

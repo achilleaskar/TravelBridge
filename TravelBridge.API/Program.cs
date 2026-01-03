@@ -4,6 +4,7 @@ using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Options;
 using Microsoft.OpenApi.Models;
 using Serilog;
+using Serilog.Events;
 using TravelBridge.API.DataBase;
 using TravelBridge.API.Endpoints;
 using TravelBridge.API.Repositories;
@@ -19,16 +20,22 @@ using TravelBridge.API.Models.Apis;
 var builder = WebApplication.CreateSlimBuilder(args);
 string? connectionString = builder.Configuration.GetConnectionString("MariaDBConnection");
 
-// Configure Serilog
+// Configure Serilog with daily rolling logs, 30 day retention
 Log.Logger = new LoggerConfiguration()
     .MinimumLevel.Information()
-    .WriteTo.Console()
+    .MinimumLevel.Override("Microsoft.AspNetCore", LogEventLevel.Warning)
+    .MinimumLevel.Override("Microsoft.EntityFrameworkCore", LogEventLevel.Warning)
+    .MinimumLevel.Override("System.Net.Http.HttpClient", LogEventLevel.Warning)
+    .Enrich.FromLogContext()
+    .WriteTo.Console(
+        outputTemplate: "[{Timestamp:HH:mm:ss} {Level:u3}] {Message:lj}{NewLine}{Exception}")
     .WriteTo.File(
-        path: "logs/log.txt",              // Single base filename
-        fileSizeLimitBytes: 50 * 1024 * 1024, // 50 MB
-        rollOnFileSizeLimit: true,            // Enable rolling when size exceeds
-        retainedFileCountLimit: 10            // Keep only last 10 files (optional)
-    )
+        path: "logs/travelbridge-.log",
+        rollingInterval: RollingInterval.Day,
+        retainedFileCountLimit: 30,
+        fileSizeLimitBytes: 50 * 1024 * 1024,
+        rollOnFileSizeLimit: true,
+        outputTemplate: "{Timestamp:yyyy-MM-dd HH:mm:ss.fff zzz} [{Level:u3}] {Message:lj}{NewLine}{Exception}")
     .CreateLogger();
 
 builder.Host.UseSerilog();
@@ -110,6 +117,7 @@ builder.Services.AddScoped<VivaService>();
 builder.Services.AddScoped<VivaAuthService>();
 
 builder.Services.AddScoped<ReservationsRepository>();
+
 #region Register Endpoint Groups
 
 // Register your service
@@ -120,34 +128,47 @@ app.UseResponseCompression();
 // Use the CORS policy
 app.UseCors("AllowAll");
 
+// Lightweight request logging middleware - logs only essential info, no body content
 app.Use(async (context, next) =>
 {
     var logger = context.RequestServices.GetRequiredService<ILogger<Program>>();
+    var requestId = Guid.NewGuid().ToString("N")[..8];
+    var stopwatch = System.Diagnostics.Stopwatch.StartNew();
+    
+    // Log request start with key identifiers only
+    using (Serilog.Context.LogContext.PushProperty("RequestId", requestId))
+    {
+        logger.LogInformation(
+            "REQ {RequestId} {Method} {Path}{QueryString}",
+            requestId,
+            context.Request.Method,
+            context.Request.Path,
+            context.Request.QueryString);
 
-    // Read request body
-    context.Request.EnableBuffering();
-    var requestBody = await new StreamReader(context.Request.Body).ReadToEndAsync();
-    context.Request.Body.Position = 0;
-
-    logger.LogInformation("Request {Method} {Path} - Body: {Body}", context.Request.Method, context.Request.Path, requestBody);
-
-    // Capture the response body
-    var originalBody = context.Response.Body;
-    using var newBody = new MemoryStream();
-    context.Response.Body = newBody;
-
-    await next(); // Call the next middleware / endpoint
-
-    // Read response body
-    newBody.Seek(0, SeekOrigin.Begin);
-    var responseBody = await new StreamReader(newBody).ReadToEndAsync();
-    newBody.Seek(0, SeekOrigin.Begin);
-
-    logger.LogInformation("Response {StatusCode} - Body: {Body}", context.Response.StatusCode, responseBody);
-
-    // Copy the response back to the original stream
-    await newBody.CopyToAsync(originalBody);
-    context.Response.Body = originalBody;
+        try
+        {
+            await next();
+            
+            stopwatch.Stop();
+            logger.LogInformation(
+                "RES {RequestId} {StatusCode} in {ElapsedMs}ms",
+                requestId,
+                context.Response.StatusCode,
+                stopwatch.ElapsedMilliseconds);
+        }
+        catch (Exception ex)
+        {
+            stopwatch.Stop();
+            logger.LogError(ex,
+                "ERR {RequestId} {Method} {Path} failed after {ElapsedMs}ms: {ErrorMessage}",
+                requestId,
+                context.Request.Method,
+                context.Request.Path,
+                stopwatch.ElapsedMilliseconds,
+                ex.Message);
+            throw;
+        }
+    }
 });
 
 // Create a scope for the DI container
@@ -166,7 +187,6 @@ using (var scope = app.Services.CreateScope())
 }
 
 #endregion Register Endpoint Groups
-
 
 app.UseSwagger();
 app.UseSwaggerUI();
