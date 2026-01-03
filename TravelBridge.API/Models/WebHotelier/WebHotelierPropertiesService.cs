@@ -25,12 +25,14 @@ namespace TravelBridge.API.Models.WebHotelier
         private readonly WebHotelierClient _whClient;
         private readonly SmtpEmailSender _mailSender;
         private readonly TestCardOptions _testCardOptions;
+        private readonly ILogger<WebHotelierPropertiesService> _logger;
 
-        public WebHotelierPropertiesService(WebHotelierClient whClient, SmtpEmailSender mailSender, IOptions<TestCardOptions> testCardOptions)
+        public WebHotelierPropertiesService(WebHotelierClient whClient, SmtpEmailSender mailSender, IOptions<TestCardOptions> testCardOptions, ILogger<WebHotelierPropertiesService> logger)
         {
             _whClient = whClient;
             _mailSender = mailSender;
             _testCardOptions = testCardOptions.Value;
+            _logger = logger;
         }
 
         /// <summary>
@@ -39,12 +41,22 @@ namespace TravelBridge.API.Models.WebHotelier
         /// <returns>Array of WHHotel objects from WebHotelier API</returns>
         public async Task<WHHotel[]> SearchPropertyFromWebHotelierAsync(string propertyName)
         {
+            _logger.LogDebug("SearchPropertyFromWebHotelierAsync started for PropertyName: {PropertyName}", propertyName);
+            var stopwatch = System.Diagnostics.Stopwatch.StartNew();
+
             try
             {
-                return await _whClient.SearchPropertiesAsync(propertyName);
+                var result = await _whClient.SearchPropertiesAsync(propertyName);
+                stopwatch.Stop();
+                _logger.LogDebug("SearchPropertyFromWebHotelierAsync completed in {ElapsedMs}ms, found {Count} properties for: {PropertyName}", 
+                    stopwatch.ElapsedMilliseconds, result?.Length ?? 0, propertyName);
+                return result;
             }
             catch (HttpRequestException ex)
             {
+                stopwatch.Stop();
+                _logger.LogError(ex, "SearchPropertyFromWebHotelierAsync failed for PropertyName: {PropertyName} after {ElapsedMs}ms", 
+                    propertyName, stopwatch.ElapsedMilliseconds);
                 throw new InvalidOperationException(ex.ToString());
             }
         }
@@ -55,26 +67,42 @@ namespace TravelBridge.API.Models.WebHotelier
         /// <returns>Array of WHHotel objects from WebHotelier API</returns>
         public async Task<WHHotel[]> GetAllPropertiesFromWebHotelierAsync()
         {
+            _logger.LogDebug("GetAllPropertiesFromWebHotelierAsync started");
+            var stopwatch = System.Diagnostics.Stopwatch.StartNew();
+
             try
             {
-                return await _whClient.GetAllPropertiesAsync();
+                var result = await _whClient.GetAllPropertiesAsync();
+                stopwatch.Stop();
+                _logger.LogDebug("GetAllPropertiesFromWebHotelierAsync completed in {ElapsedMs}ms, found {Count} properties", 
+                    stopwatch.ElapsedMilliseconds, result?.Length ?? 0);
+                return result;
             }
             catch (HttpRequestException ex)
             {
+                stopwatch.Stop();
+                _logger.LogError(ex, "GetAllPropertiesFromWebHotelierAsync failed after {ElapsedMs}ms", stopwatch.ElapsedMilliseconds);
                 throw new InvalidOperationException(ex.ToString());
             }
         }
 
         public async Task<PluginSearchResponse> GetAvailabilityAsync(WHAvailabilityRequest request)
         {
+            _logger.LogInformation("GetAvailabilityAsync started - CheckIn: {CheckIn}, CheckOut: {CheckOut}, Lat: {Lat}, Lon: {Lon}", 
+                request.CheckIn, request.CheckOut, request.Lat, request.Lon);
+            var stopwatch = System.Diagnostics.Stopwatch.StartNew();
+
             try
             {
                 List<WHPartyItem> partyList = GetPartyList(request.Party);
 
                 if (partyList.IsNullOrEmpty())
                 {
+                    _logger.LogWarning("GetAvailabilityAsync failed: Invalid parties in request");
                     throw new InvalidOperationException($"Error calling WebHotelier API. Invalid parties");
                 }
+
+                _logger.LogDebug("GetAvailabilityAsync: Processing {PartyCount} party configurations", partyList.Count);
 
                 Dictionary<WHPartyItem, Task<WHMultiAvailabilityResponse?>> tasks = new();
                 foreach (var partyItem in partyList ?? new())
@@ -91,6 +119,7 @@ namespace TravelBridge.API.Models.WebHotelier
                     var res = await task.Value;
                     if (res == null)
                     {
+                        _logger.LogWarning("GetAvailabilityAsync: Null response from WebHotelier for party: {Party}", task.Key.party);
                         return new PluginSearchResponse();
                     }
                     WHProvider Provider = WHProvider.WebHotelier;
@@ -119,13 +148,21 @@ namespace TravelBridge.API.Models.WebHotelier
                 var MergedRooms = MergeResponses(respones);
                 if (MergedRooms == null || MergedRooms.Results.IsNullOrEmpty())
                 {
+                    _logger.LogInformation("GetAvailabilityAsync: No results found after merging");
                     return new PluginSearchResponse();
                 }
                 MergedRooms.Results = AvailabilityProcessor.FilterHotelsByAvailability(MergedRooms, partyList.ToContracts());
+
+                stopwatch.Stop();
+                _logger.LogInformation("GetAvailabilityAsync completed in {ElapsedMs}ms - ResultsCount: {ResultsCount}", 
+                    stopwatch.ElapsedMilliseconds, MergedRooms.Results?.Count() ?? 0);
+
                 return MergedRooms;
             }
             catch (HttpRequestException ex)
             {
+                stopwatch.Stop();
+                _logger.LogError(ex, "GetAvailabilityAsync failed after {ElapsedMs}ms", stopwatch.ElapsedMilliseconds);
                 throw new InvalidOperationException($"Error calling WebHotelier API: {ex.Message}", ex);
             }
         }
@@ -137,6 +174,10 @@ namespace TravelBridge.API.Models.WebHotelier
             List<SelectedRate>? rates = null,
             string? couponCode = null)
         {
+            _logger.LogInformation("GetHotelAvailabilityAsync started - PropertyId: {PropertyId}, CheckIn: {CheckIn}, CheckOut: {CheckOut}, HasRates: {HasRates}, CouponCode: {CouponCode}", 
+                request.PropertyId, request.CheckIn, request.CheckOut, rates != null, couponCode);
+            var stopwatch = System.Diagnostics.Stopwatch.StartNew();
+
             try
             {
                 rates?.ForEach(r => r.FillPartyFromId());
@@ -145,8 +186,11 @@ namespace TravelBridge.API.Models.WebHotelier
 
                 if (partyList.IsNullOrEmpty())
                 {
+                    _logger.LogWarning("GetHotelAvailabilityAsync failed: Invalid parties");
                     throw new InvalidOperationException($"Error calling WebHotelier API. Invalid parties");
                 }
+
+                _logger.LogDebug("GetHotelAvailabilityAsync: Processing {PartyCount} party configurations", partyList.Count);
 
                 Dictionary<WHPartyItem, Task<WHSingleAvailabilityData?>> tasks = new();
                 foreach (var partyItem in partyList ?? new())
@@ -162,6 +206,7 @@ namespace TravelBridge.API.Models.WebHotelier
                     var res = await task.Value ?? throw new InvalidOperationException("No Results");
                     if (res == null)
                     {
+                        _logger.LogWarning("GetHotelAvailabilityAsync: No response for PropertyId: {PropertyId}", request.PropertyId);
                         return new SingleAvailabilityResponse { ErrorMessage = "No response" };
                     }
                     finalRes?.Data?.Rates.AddRange(res.Data?.Rates ?? new List<WHHotelRate>());
@@ -185,11 +230,13 @@ namespace TravelBridge.API.Models.WebHotelier
                     var mappedResponse = finalRes.MapToResponse(checkinDate, 0, CouponType.none);
                     if (mappedResponse == null || !AvailabilityProcessor.HasSufficientAvailability(mappedResponse, rates))
                     {
+                        _logger.LogWarning("GetHotelAvailabilityAsync: Not enough rooms for PropertyId: {PropertyId}", request.PropertyId);
                         return new SingleAvailabilityResponse { ErrorCode = "Error", ErrorMessage = "Not enough rooms", Data = new SingleHotelAvailabilityInfo { Rooms = [] } };
                     }
                 }
                 else if (finalRes?.Data?.Rates.IsNullOrEmpty() != false)
                 {
+                    _logger.LogDebug("GetHotelAvailabilityAsync: No rates found, fetching alternatives");
                     finalRes!.Alternatives = await GetAlternatives(partyList, request.PropertyId, request.CheckIn, request.CheckOut);
                 }
 
@@ -202,11 +249,15 @@ namespace TravelBridge.API.Models.WebHotelier
                     {
                         disc = coupon.Percentage / 100m;
                         couponType = CouponType.percentage;
+                        _logger.LogInformation("GetHotelAvailabilityAsync: Applied percentage coupon - Code: {CouponCode}, Discount: {Discount}%", 
+                            couponCode, coupon.Percentage);
                     }
                     else if (coupon != null && coupon.CouponType == CouponType.flat)
                     {
                         disc = coupon.Amount;
                         couponType = CouponType.flat;
+                        _logger.LogInformation("GetHotelAvailabilityAsync: Applied flat coupon - Code: {CouponCode}, Amount: {Amount}", 
+                            couponCode, coupon.Amount);
                     }
                 }
 
@@ -220,17 +271,28 @@ namespace TravelBridge.API.Models.WebHotelier
                     };
                 }
 
-                return finalRes?.MapToResponse(checkinDate, disc, couponType)
+                var response = finalRes?.MapToResponse(checkinDate, disc, couponType)
                     ?? new SingleAvailabilityResponse { ErrorCode = "Empty", ErrorMessage = "No records found", Data = new SingleHotelAvailabilityInfo { Rooms = [] } };
+
+                stopwatch.Stop();
+                _logger.LogInformation("GetHotelAvailabilityAsync completed in {ElapsedMs}ms for PropertyId: {PropertyId}, RoomsCount: {RoomsCount}", 
+                    stopwatch.ElapsedMilliseconds, request.PropertyId, response.Data?.Rooms?.Count() ?? 0);
+
+                return response;
             }
             catch (HttpRequestException ex)
             {
+                stopwatch.Stop();
+                _logger.LogError(ex, "GetHotelAvailabilityAsync failed for PropertyId: {PropertyId} after {ElapsedMs}ms", 
+                    request.PropertyId, stopwatch.ElapsedMilliseconds);
                 return new SingleAvailabilityResponse { ErrorCode = "Error", ErrorMessage = "Internal Error", Data = new SingleHotelAvailabilityInfo { Rooms = [] } };
             }
         }
 
         private async Task<List<WHAlternative>> GetAlternatives(List<WHPartyItem>? partyList, string propertyId, string checkIn, string checkOut)
         {
+            _logger.LogDebug("GetAlternatives started for PropertyId: {PropertyId}", propertyId);
+
             var from = DateTime.Parse(checkIn).AddDays(-14);
             var to = DateTime.Parse(checkOut).AddDays(14);
 
@@ -253,13 +315,16 @@ namespace TravelBridge.API.Models.WebHotelier
                 var res = await task.Value ?? throw new InvalidOperationException("No Results");
                 if (res == null)
                 {
+                    _logger.LogDebug("GetAlternatives: No alternatives found for PropertyId: {PropertyId}", propertyId);
                     return [];
                 }
                 var alterDates = res.Data?.days?.Where(d => d.status == "AVL" || d.status == "MIN") ?? [];
                 alterDatesDict.Add(task.Key, GetAlterDates(alterDates, checkIn, checkOut));
             }
 
-            return KeepCommon(alterDatesDict);
+            var result = KeepCommon(alterDatesDict);
+            _logger.LogDebug("GetAlternatives completed for PropertyId: {PropertyId}, found {Count} alternatives", propertyId, result.Count);
+            return result;
         }
 
         private static List<WHAlternative> KeepCommon(Dictionary<WHPartyItem, List<WHAlternative>> alterDatesDict)
@@ -361,6 +426,324 @@ namespace TravelBridge.API.Models.WebHotelier
             }
         }
 
+        internal async Task<WHHotelInfoResponse> GetHotelInfo(string hotelId)
+        {
+            _logger.LogDebug("GetHotelInfo started for HotelId: {HotelId}", hotelId);
+            var stopwatch = System.Diagnostics.Stopwatch.StartNew();
+
+            try
+            {
+                var res = await _whClient.GetHotelInfoAsync(hotelId) ?? throw new InvalidOperationException("Hotel not Found");
+                res.Data!.LargePhotos = res.Data.PhotosItems.Select(p => p.Large);
+                res.Data.PhotosItems = [];
+
+                stopwatch.Stop();
+                _logger.LogDebug("GetHotelInfo completed in {ElapsedMs}ms for HotelId: {HotelId}, HotelName: {HotelName}", 
+                    stopwatch.ElapsedMilliseconds, hotelId, res.Data?.Name);
+
+                return res;
+            }
+            catch (HttpRequestException ex)
+            {
+                stopwatch.Stop();
+                _logger.LogError(ex, "GetHotelInfo failed for HotelId: {HotelId} after {ElapsedMs}ms", hotelId, stopwatch.ElapsedMilliseconds);
+                throw new InvalidOperationException($"Error calling WebHotelier API: {ex.Message}", ex);
+            }
+        }
+
+        internal async Task<WHRoomInfoResponse> GetRoomInfo(string hotelId, string roomcode)
+        {
+            _logger.LogDebug("GetRoomInfo started for HotelId: {HotelId}, RoomCode: {RoomCode}", hotelId, roomcode);
+            var stopwatch = System.Diagnostics.Stopwatch.StartNew();
+
+            try
+            {
+                var res = await _whClient.GetRoomInfoAsync(hotelId, roomcode) ?? throw new InvalidOperationException("Room not Found");
+                res.Data!.LargePhotos = res.Data.PhotosItems.Select(p => p.Large);
+                res.Data.MediumPhotos = res.Data.PhotosItems.Select(p => p.Medium);
+
+                stopwatch.Stop();
+                _logger.LogDebug("GetRoomInfo completed in {ElapsedMs}ms for HotelId: {HotelId}, RoomCode: {RoomCode}", 
+                    stopwatch.ElapsedMilliseconds, hotelId, roomcode);
+
+                return res;
+            }
+            catch (HttpRequestException ex)
+            {
+                stopwatch.Stop();
+                _logger.LogError(ex, "GetRoomInfo failed for HotelId: {HotelId}, RoomCode: {RoomCode} after {ElapsedMs}ms", 
+                    hotelId, roomcode, stopwatch.ElapsedMilliseconds);
+                throw new InvalidOperationException($"Error calling WebHotelier API: {ex.Message}", ex);
+            }
+        }
+
+        internal async Task CreateBooking(Reservation reservation, Repositories.ReservationsRepository repo)
+        {
+            _logger.LogInformation("CreateBooking started for ReservationId: {ReservationId}, HotelCode: {HotelCode}, RatesCount: {RatesCount}", 
+                reservation.Id, reservation.HotelCode, reservation.Rates.Count);
+            var stopwatch = System.Diagnostics.Stopwatch.StartNew();
+
+            try
+            {
+                if (reservation.Customer == null)
+                {
+                    _logger.LogWarning("CreateBooking failed: Customer info is required for ReservationId: {ReservationId}", reservation.Id);
+                    throw new InvalidDataException($"Customer info is required");
+                }
+
+                if (reservation.HotelCode == null)
+                {
+                    _logger.LogWarning("CreateBooking failed: Hotel code is required for ReservationId: {ReservationId}", reservation.Id);
+                    throw new InvalidDataException($"Hotel code is required");
+                }
+
+                foreach (var rate in reservation.Rates)
+                {
+                    _logger.LogDebug("CreateBooking: Processing rate {RateId} for ReservationId: {ReservationId}", rate.RateId, reservation.Id);
+
+                    var parameters = new Dictionary<string, string>
+                    {
+                        { "checkin", reservation.CheckIn.ToString("yyyy-MM-dd")},
+                        { "checkout", reservation.CheckOut.ToString("yyyy-MM-dd") },
+                        { "rate", rate.RateId.Split('-')[0].ToString() },
+                        { "price", (rate.NetPrice).ToString(CultureInfo.InvariantCulture) },
+                        { "rooms", rate.Quantity.ToString() },
+                        { "adults", rate.SearchParty?.Adults.ToString()??throw new InvalidDataException($"adults are required in party. party:{rate.SearchParty?.ToString()??"empty party"}") },
+                        { "party", string.Join(",", Enumerable.Repeat(rate.SearchParty?.Party??"", rate.Quantity)).Replace("],[",",") },
+                        { "firstName", reservation.Customer!.FirstName },
+                        { "lastName", reservation.Customer!.LastName },
+                        { "email", reservation.Customer!.Email },
+                        { "remarks", reservation.Customer!.Notes },
+                        { "payment_method", "CC" },
+                        { "cardNumber", _testCardOptions.CardNumber },
+                        { "cardType", _testCardOptions.CardType },
+                        { "cardName", _testCardOptions.CardName },
+                        { "cardMonth", _testCardOptions.CardMonth },
+                        { "cardYear", _testCardOptions.CardYear },
+                        { "cardCVV", _testCardOptions.CardCVV }
+                    };
+
+                    if (!await repo.UpdateReservationRateStatus(rate.Id, BookingStatus.Running, BookingStatus.Pending))
+                    {
+                        _logger.LogError("CreateBooking: Failed to update rate status to Running for RateId: {RateId}", rate.Id);
+                        throw new InvalidOperationException($"Error updating reservation rate status");
+                    }
+
+                    var hotelCode = reservation.HotelCode!.Split('-')[1];
+                    _logger.LogDebug("CreateBooking: Calling WebHotelier CreateBooking API for HotelCode: {HotelCode}", hotelCode);
+
+                    var res = await _whClient.CreateBookingAsync(hotelCode, parameters);
+                    
+                    if (res == null)
+                    {
+                        _logger.LogError("CreateBooking: Invalid booking response from WebHotelier for RateId: {RateId}", rate.Id);
+                        throw new InvalidOperationException("Invalid Booking Response");
+                    }
+
+                    _logger.LogInformation("CreateBooking: WebHotelier booking created - ProviderResId: {ProviderResId} for RateId: {RateId}", 
+                        res.data?.res_id, rate.Id);
+                    
+                    if (!await repo.UpdateReservationRateStatusConfirmed(rate.Id, BookingStatus.Confirmed, res.data!.res_id))
+                    {
+                        _logger.LogError("CreateBooking: Failed to update rate status to Confirmed for RateId: {RateId}", rate.Id);
+                        throw new InvalidOperationException($"Error updating reservation rate status to Confirmed. {rate.Id}");
+                    }
+                }
+
+                if (reservation.Rates.All(r => r.BookingStatus == BookingStatus.Confirmed))
+                {
+                    if (await repo.UpdateReservationStatus(reservation.Id, BookingStatus.Confirmed, BookingStatus.Pending))
+                    {
+                        _logger.LogInformation("CreateBooking: All rates confirmed, sending confirmation email for ReservationId: {ReservationId}", reservation.Id);
+                        await SendConfirmationEmail(reservation);
+                    }
+                }
+
+                stopwatch.Stop();
+                _logger.LogInformation("CreateBooking completed for ReservationId: {ReservationId} in {ElapsedMs}ms", 
+                    reservation.Id, stopwatch.ElapsedMilliseconds);
+            }
+            catch (HttpRequestException ex)
+            {
+                stopwatch.Stop();
+                _logger.LogError(ex, "CreateBooking failed (HttpRequestException) for ReservationId: {ReservationId} after {ElapsedMs}ms, attempting cancellation", 
+                    reservation.Id, stopwatch.ElapsedMilliseconds);
+                if (await CancelBooking(reservation, repo))
+                {
+                    throw new InvalidOperationException($"Error calling WebHotelier API: {ex.Message} - Error cancelling booking. ", ex);
+                }
+                throw new InvalidOperationException($"Error calling WebHotelier API: {ex.Message}", ex);
+            }
+            catch (Exception ex)
+            {
+                stopwatch.Stop();
+                _logger.LogError(ex, "CreateBooking failed for ReservationId: {ReservationId} after {ElapsedMs}ms, attempting cancellation", 
+                    reservation.Id, stopwatch.ElapsedMilliseconds);
+                if (await CancelBooking(reservation, repo))
+                {
+                    throw new InvalidOperationException($"Error calling WebHotelier API: {ex.Message} - Error cancelling booking. ", ex);
+                }
+                throw new InvalidOperationException($"Error calling WebHotelier API: {ex.Message}", ex);
+            }
+        }
+
+        public async Task<bool> CancelBooking(Reservation reservation, Repositories.ReservationsRepository repo)
+        {
+            _logger.LogInformation("CancelBooking started for ReservationId: {ReservationId}", reservation.Id);
+
+            bool allOk = true;
+            foreach (var rate in reservation.Rates)
+            {
+                if (rate.ProviderResId > 0 == true)
+                {
+                    _logger.LogDebug("CancelBooking: Cancelling ProviderResId: {ProviderResId} for RateId: {RateId}", rate.ProviderResId, rate.Id);
+                    var success = await _whClient.CancelBookingAsync(rate.ProviderResId);
+
+                    if (success)
+                    {
+                        _logger.LogInformation("CancelBooking: Successfully cancelled ProviderResId: {ProviderResId}", rate.ProviderResId);
+                        if (!await repo.UpdateReservationStatus(reservation.Id, BookingStatus.Cancelled))
+                        {
+                            _logger.LogError("CancelBooking: Failed to update reservation status to Cancelled for ReservationId: {ReservationId}", reservation.Id);
+                            throw new InvalidOperationException($"Error updating reservation status to canceled");
+                        }
+                    }
+                    else
+                    {
+                        allOk = false;
+                        _logger.LogError("CancelBooking: Failed to cancel ProviderResId: {ProviderResId}", rate.ProviderResId);
+                        if (!await repo.UpdateReservationRateStatus(rate.Id, BookingStatus.Running, BookingStatus.Error))
+                        {
+                            throw new InvalidOperationException($"Error updating reservation rate status");
+                        }
+                        throw new InvalidOperationException($"Error calling WebHotelier API for cancellation");
+                    }
+                }
+            }
+
+            _logger.LogInformation("CancelBooking completed for ReservationId: {ReservationId}, AllOk: {AllOk}", reservation.Id, allOk);
+            return allOk;
+        }
+
+        public async Task SendConfirmationEmail(Reservation reservation)
+        {
+            _logger.LogInformation("SendConfirmationEmail started for ReservationId: {ReservationId}, CustomerEmail: {Email}", 
+                reservation.Id, reservation.Customer?.Email);
+            var stopwatch = System.Diagnostics.Stopwatch.StartNew();
+
+            try
+            {
+                var assembly = Assembly.GetExecutingAssembly();
+                string resourceName = "TravelBridge.API.Resources.BookingConfirmationEmailTemplate.html";
+                string htmlContent;
+
+                using (Stream stream = assembly.GetManifestResourceStream(resourceName)!)
+                {
+                    if (stream == null)
+                    {
+                        _logger.LogError("SendConfirmationEmail: Email template resource not found - {ResourceName}", resourceName);
+                        throw new InvalidOperationException($"Resource {resourceName} not found.");
+                    }
+
+                    using StreamReader reader = new(stream);
+                    htmlContent = reader.ReadToEnd();
+                }
+                
+                var paid = reservation.Payments.Where(p => p.PaymentStatus == PaymentStatus.Success).Sum(a => a.Amount);
+                htmlContent = htmlContent
+                    .Replace("[Client Full Name]", $"{reservation.Customer!.LastName} {reservation.Customer.FirstName}")
+                    .Replace("[Hotel Name]", reservation.HotelName)
+                    .Replace("[ReservationCode]", string.Join(", ", reservation.Rates.Select(r => r.ProviderResId)))
+                    .Replace("[CheckInString]", reservation.CheckIn.ToString("dd/MM/yyyy") + $" από τις {reservation.CheckInTime} και μετά")
+                    .Replace("[CheckoutString]", reservation.CheckOut.ToString("dd/MM/yyyy") + $" έως τις {reservation.CheckOutTime}")
+                    .Replace("[NightsString]", $"{(reservation.CheckOut.DayNumber - reservation.CheckIn.DayNumber).ToString()} νύχτες")
+                    .Replace("[TotalPartyString]", reservation.GetFullPartyDescription())
+                    .Replace("[Client LastName]", reservation.Customer.LastName)
+                    .Replace("[Client Name]", reservation.Customer.FirstName)
+                    .Replace("[Client Email]", reservation.Customer.Email)
+                    .Replace("[Client Phone]", reservation.Customer.Tel)
+                    .Replace("[CustomerNotes]", reservation.Customer.Notes)
+                    .Replace("[TotalAmount]", reservation.TotalAmount.ToString("F2", CultureInfo.InvariantCulture) + " €")
+                    .Replace("[PaidAmount]", paid.ToString("F2", CultureInfo.InvariantCulture) + " €")
+                    .Replace("[RemainingAmount]", (reservation.TotalAmount - paid).ToString("F2", CultureInfo.InvariantCulture) + " €");
+
+                string RoomDetails = """
+                           <div>
+                           <p>
+                    		  <span class="value">[CountAndRoomType]</span>
+                            </p>
+                            <p>
+                              <span class="label">Διατροφή:</span>
+                              <span class="value">[BoardType]</span>
+                            </p>
+                            <p>
+                              <span class="label">Πολιτική ακύρωσης:</span>
+                              <span class="value">[CancelationPolicy]</span>
+                            </p>
+                            <p>
+                              <span class="label">Κόστος δωματίων:</span>
+                              <span class="value">[RoomCost]</span>
+                            </p>
+                            <p>
+                              <span class="label">Σύνθεση:</span>
+                              <span class="value">[PartyDesc]</span>
+                            </p>
+                            <p></p>
+                            <br/>
+                          </div>
+                """;
+
+                string FinalRoomDetails = "";
+
+                foreach (var rate in reservation.Rates)
+                {
+                    var cancelationInfo = rate.CancelationInfo ?? "Δεν υπάρχει πολιτική ακύρωσης";
+                    if (reservation.RemainingAmount > 0 && reservation.PartialPayment.nextPayments.Count > 0)
+                    {
+                        cancelationInfo +=
+                            $" έως {(reservation.PartialPayment.nextPayments.OrderBy(a => a.DueDate)
+                            .First().DueDate?.ToString("dd/MM/yyyy HH:mm") ?? "error")}";
+                    }
+
+                    FinalRoomDetails += RoomDetails
+                    .Replace("[CountAndRoomType]", $"{rate.Quantity} x {rate.Name}")
+                    .Replace("[CancelationPolicy]", cancelationInfo)
+                    .Replace("[BoardType]", rate.BoardInfo)
+                    .Replace("[PartyDesc]", rate.GetPartyInfo())
+                    .Replace("[RoomCost]", rate.Price.ToString("F2", CultureInfo.InvariantCulture) + " €");
+                }
+
+                htmlContent = htmlContent
+                   .Replace("[RoomDetails]", FinalRoomDetails);
+
+
+                var mailMessage = new MailMessage
+                {
+                    From = new MailAddress("bookings@my-diakopes.gr"),
+                    Subject = "Επιβεβαίωση Κράτησης",
+                    Body = htmlContent,
+                    IsBodyHtml = true,
+                };
+
+                mailMessage.Bcc.Add("achilleaskaragiannis@outlook.com");
+                mailMessage.CC.Add("bookings@my-diakopes.gr");
+                mailMessage.To.Add(reservation.Customer.Email);
+
+                await _mailSender.SendMailAsync(mailMessage);
+
+                stopwatch.Stop();
+                _logger.LogInformation("SendConfirmationEmail completed for ReservationId: {ReservationId}, Email: {Email} in {ElapsedMs}ms", 
+                    reservation.Id, reservation.Customer.Email, stopwatch.ElapsedMilliseconds);
+            }
+            catch (Exception ex)
+            {
+                stopwatch.Stop();
+                _logger.LogError(ex, "SendConfirmationEmail failed for ReservationId: {ReservationId} after {ElapsedMs}ms", 
+                    reservation.Id, stopwatch.ElapsedMilliseconds);
+                throw;
+            }
+        }
+
         private static List<WHPartyItem> GetPartyList(string party)
         {
             return JsonSerializer.Deserialize<List<WHPartyItem>>(party)!.GroupBy(g => new { g.adults, Children = g.children != null ? string.Join(",", g.children) : "" })
@@ -448,248 +831,6 @@ namespace TravelBridge.API.Models.WebHotelier
                 //TODO: log error
                 return new PluginSearchResponse();
             }
-        }
-
-        internal async Task<WHHotelInfoResponse> GetHotelInfo(string hotelId)
-        {
-            try
-            {
-                var res = await _whClient.GetHotelInfoAsync(hotelId) ?? throw new InvalidOperationException("Hotel not Found");
-                res.Data!.LargePhotos = res.Data.PhotosItems.Select(p => p.Large);
-                res.Data.PhotosItems = [];
-                return res;
-            }
-            catch (HttpRequestException ex)
-            {
-                throw new InvalidOperationException($"Error calling WebHotelier API: {ex.Message}", ex);
-            }
-        }
-
-        internal async Task<WHRoomInfoResponse> GetRoomInfo(string hotelId, string roomcode)
-        {
-            try
-            {
-                var res = await _whClient.GetRoomInfoAsync(hotelId, roomcode) ?? throw new InvalidOperationException("Room not Found");
-                res.Data!.LargePhotos = res.Data.PhotosItems.Select(p => p.Large);
-                res.Data.MediumPhotos = res.Data.PhotosItems.Select(p => p.Medium);
-                return res;
-            }
-            catch (HttpRequestException ex)
-            {
-                throw new InvalidOperationException($"Error calling WebHotelier API: {ex.Message}", ex);
-            }
-        }
-
-        internal async Task CreateBooking(Reservation reservation, Repositories.ReservationsRepository repo)
-        {
-            try
-            {
-                if (reservation.Customer == null)
-                {
-                    throw new InvalidDataException($"Customer info is required");
-                }
-
-                if (reservation.HotelCode == null)
-                {
-                    throw new InvalidDataException($"Hotel code is required");
-                }
-
-                foreach (var rate in reservation.Rates)
-                {
-                    var parameters = new Dictionary<string, string>
-                    {
-                        { "checkin", reservation.CheckIn.ToString("yyyy-MM-dd")},
-                        { "checkout", reservation.CheckOut.ToString("yyyy-MM-dd") },
-                        { "rate", rate.RateId.Split('-')[0].ToString() },
-                        { "price", (rate.NetPrice).ToString(CultureInfo.InvariantCulture) },
-                        { "rooms", rate.Quantity.ToString() },
-                        { "adults", rate.SearchParty?.Adults.ToString()??throw new InvalidDataException($"adults are required in party. party:{rate.SearchParty?.ToString()??"empty party"}") },
-                        { "party", string.Join(",", Enumerable.Repeat(rate.SearchParty?.Party??"", rate.Quantity)).Replace("],[",",") },
-                        { "firstName", reservation.Customer!.FirstName },
-                        { "lastName", reservation.Customer!.LastName },
-                        { "email", reservation.Customer!.Email },
-                        { "remarks", reservation.Customer!.Notes },
-                        { "payment_method", "CC" },
-                        { "cardNumber", _testCardOptions.CardNumber },
-                        { "cardType", _testCardOptions.CardType },
-                        { "cardName", _testCardOptions.CardName },
-                        { "cardMonth", _testCardOptions.CardMonth },
-                        { "cardYear", _testCardOptions.CardYear },
-                        { "cardCVV", _testCardOptions.CardCVV }
-                    };
-
-                    if (!await repo.UpdateReservationRateStatus(rate.Id, BookingStatus.Running, BookingStatus.Pending))
-                    {
-                        throw new InvalidOperationException($"Error updating reservation rate status");
-                    }
-
-                    var hotelCode = reservation.HotelCode!.Split('-')[1];
-                    var res = await _whClient.CreateBookingAsync(hotelCode, parameters);
-                    
-                    if (res == null)
-                    {
-                        throw new InvalidOperationException("Invalid Booking Response");
-                    }
-                    
-                    if (!await repo.UpdateReservationRateStatusConfirmed(rate.Id, BookingStatus.Confirmed, res.data!.res_id))
-                    {
-                        throw new InvalidOperationException($"Error updating reservation rate status to Confirmed. {rate.Id}");
-                    }
-                }
-
-                if (reservation.Rates.All(r => r.BookingStatus == BookingStatus.Confirmed))
-                {
-                    if (await repo.UpdateReservationStatus(reservation.Id, BookingStatus.Confirmed, BookingStatus.Pending))
-                    {
-                        await SendConfirmationEmail(reservation);
-                    }
-                }
-            }
-            catch (HttpRequestException ex)
-            {
-                if (await CancelBooking(reservation, repo))
-                {
-                    throw new InvalidOperationException($"Error calling WebHotelier API: {ex.Message} - Error cancelling booking. ", ex);
-                }
-                throw new InvalidOperationException($"Error calling WebHotelier API: {ex.Message}", ex);
-            }
-            catch (Exception ex)
-            {
-                if (await CancelBooking(reservation, repo))
-                {
-                    throw new InvalidOperationException($"Error calling WebHotelier API: {ex.Message} - Error cancelling booking. ", ex);
-                }
-                throw new InvalidOperationException($"Error calling WebHotelier API: {ex.Message}", ex);
-            }
-        }
-
-        public async Task<bool> CancelBooking(Reservation reservation, Repositories.ReservationsRepository repo)
-        {
-            bool allOk = true;
-            foreach (var rate in reservation.Rates)
-            {
-                if (rate.ProviderResId > 0 == true)
-                {
-                    var success = await _whClient.CancelBookingAsync(rate.ProviderResId);
-
-                    if (success)
-                    {
-                        if (!await repo.UpdateReservationStatus(reservation.Id, BookingStatus.Cancelled))
-                        {
-                            throw new InvalidOperationException($"Error updating reservation status to canceled");
-                        }
-                    }
-                    else
-                    {
-                        allOk = false;
-                        if (!await repo.UpdateReservationRateStatus(rate.Id, BookingStatus.Running, BookingStatus.Error))
-                        {
-                            throw new InvalidOperationException($"Error updating reservation rate status");
-                        }
-                        throw new InvalidOperationException($"Error calling WebHotelier API for cancellation");
-                    }
-                }
-            }
-
-            return allOk;
-        }
-
-        public async Task SendConfirmationEmail(Reservation reservation)
-        {
-            var assembly = Assembly.GetExecutingAssembly();
-            string resourceName = "TravelBridge.API.Resources.BookingConfirmationEmailTemplate.html";
-            string htmlContent;
-
-            using (Stream stream = assembly.GetManifestResourceStream(resourceName)!)
-            {
-                if (stream == null)
-                    throw new InvalidOperationException($"Resource {resourceName} not found.");
-
-                using StreamReader reader = new(stream);
-                htmlContent = reader.ReadToEnd();
-            }
-            var paid = reservation.Payments.Where(p => p.PaymentStatus == PaymentStatus.Success).Sum(a => a.Amount);
-            htmlContent = htmlContent
-                .Replace("[Client Full Name]", $"{reservation.Customer!.LastName} {reservation.Customer.FirstName}")
-                .Replace("[Hotel Name]", reservation.HotelName)
-                .Replace("[ReservationCode]", string.Join(", ", reservation.Rates.Select(r => r.ProviderResId)))
-                .Replace("[CheckInString]", reservation.CheckIn.ToString("dd/MM/yyyy") + $" από τις {reservation.CheckInTime} και μετά")
-                .Replace("[CheckoutString]", reservation.CheckOut.ToString("dd/MM/yyyy") + $" έως τις {reservation.CheckOutTime}")
-                .Replace("[NightsString]", $"{(reservation.CheckOut.DayNumber - reservation.CheckIn.DayNumber).ToString()} νύχτες")
-                .Replace("[TotalPartyString]", reservation.GetFullPartyDescription())
-                .Replace("[Client LastName]", reservation.Customer.LastName)
-                .Replace("[Client Name]", reservation.Customer.FirstName)
-                .Replace("[Client Email]", reservation.Customer.Email)
-                .Replace("[Client Phone]", reservation.Customer.Tel)
-                .Replace("[CustomerNotes]", reservation.Customer.Notes)
-                .Replace("[TotalAmount]", reservation.TotalAmount.ToString("F2", CultureInfo.InvariantCulture) + " €")
-                .Replace("[PaidAmount]", paid.ToString("F2", CultureInfo.InvariantCulture) + " €")
-                .Replace("[RemainingAmount]", (reservation.TotalAmount - paid).ToString("F2", CultureInfo.InvariantCulture) + " €");
-
-            string RoomDetails = """
-                       <div>
-                       <p>
-                		  <span class="value">[CountAndRoomType]</span>
-                        </p>
-                        <p>
-                          <span class="label">Διατροφή:</span>
-                          <span class="value">[BoardType]</span>
-                        </p>
-                        <p>
-                          <span class="label">Πολιτική ακύρωσης:</span>
-                          <span class="value">[CancelationPolicy]</span>
-                        </p>
-                        <p>
-                          <span class="label">Κόστος δωματίων:</span>
-                          <span class="value">[RoomCost]</span>
-                        </p>
-                        <p>
-                          <span class="label">Σύνθεση:</span>
-                          <span class="value">[PartyDesc]</span>
-                        </p>
-                        <p></p>
-                        <br/>
-                      </div>
-                """;
-
-            string FinalRoomDetails = "";
-
-            foreach (var rate in reservation.Rates)
-            {
-                var cancelationInfo = rate.CancelationInfo ?? "Δεν υπάρχει πολιτική ακύρωσης";
-                if (reservation.RemainingAmount > 0 && reservation.PartialPayment.nextPayments.Count > 0)
-                {
-                    cancelationInfo +=
-                        $" έως {(reservation.PartialPayment.nextPayments.OrderBy(a => a.DueDate)
-                        .First().DueDate?.ToString("dd/MM/yyyy HH:mm") ?? "error")}";
-                }
-
-                FinalRoomDetails += RoomDetails
-                .Replace("[CountAndRoomType]", $"{rate.Quantity} x {rate.Name}")
-                .Replace("[CancelationPolicy]", cancelationInfo)
-                .Replace("[BoardType]", rate.BoardInfo)
-                .Replace("[PartyDesc]", rate.GetPartyInfo())
-                .Replace("[RoomCost]", rate.Price.ToString("F2", CultureInfo.InvariantCulture) + " €");
-            }
-
-            htmlContent = htmlContent
-               .Replace("[RoomDetails]", FinalRoomDetails);
-
-
-            // Email message setup
-            var mailMessage = new MailMessage
-            {
-                From = new MailAddress("bookings@my-diakopes.gr"),
-                Subject = "Επιβεβαίωση Κράτησης",
-                Body = htmlContent, // sending actual HTML content
-                IsBodyHtml = true,
-            };
-
-            mailMessage.Bcc.Add("achilleaskaragiannis@outlook.com");
-            mailMessage.CC.Add("bookings@my-diakopes.gr");
-            mailMessage.To.Add(reservation.Customer.Email);
-
-            await _mailSender.SendMailAsync(mailMessage);
         }
     }
 }

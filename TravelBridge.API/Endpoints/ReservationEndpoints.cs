@@ -22,10 +22,12 @@ namespace TravelBridge.API.Endpoints
     public class ReservationEndpoints
     {
         private readonly WebHotelierPropertiesService webHotelierPropertiesService;
+        private readonly ILogger<ReservationEndpoints> _logger;
 
-        public ReservationEndpoints(WebHotelierPropertiesService webHotelierPropertiesService)
+        public ReservationEndpoints(WebHotelierPropertiesService webHotelierPropertiesService, ILogger<ReservationEndpoints> logger)
         {
             this.webHotelierPropertiesService = webHotelierPropertiesService;
+            _logger = logger;
         }
 
         public record SubmitSearchParameters
@@ -145,535 +147,703 @@ namespace TravelBridge.API.Endpoints
 
         private async Task CancelBooking(string OrderCode, ReservationsRepository repo)
         {
-            var reservation = await repo.GetReservationBasicDataByPaymentCode(OrderCode);
+            _logger.LogInformation("CancelBooking started for OrderCode: {OrderCode}", OrderCode);
+            var stopwatch = System.Diagnostics.Stopwatch.StartNew();
 
-            await webHotelierPropertiesService.CancelBooking(reservation, repo);
+            try
+            {
+                var reservation = await repo.GetReservationBasicDataByPaymentCode(OrderCode);
+                if (reservation == null)
+                {
+                    _logger.LogWarning("CancelBooking failed: Reservation not found for OrderCode: {OrderCode}", OrderCode);
+                    throw new InvalidOperationException("Reservation not found");
+                }
+
+                _logger.LogInformation("CancelBooking: Found reservation {ReservationId} for OrderCode: {OrderCode}", reservation.Id, OrderCode);
+                await webHotelierPropertiesService.CancelBooking(reservation, repo);
+
+                stopwatch.Stop();
+                _logger.LogInformation("CancelBooking completed for OrderCode: {OrderCode}, ReservationId: {ReservationId} in {ElapsedMs}ms", 
+                    OrderCode, reservation.Id, stopwatch.ElapsedMilliseconds);
+            }
+            catch (Exception ex)
+            {
+                stopwatch.Stop();
+                _logger.LogError(ex, "CancelBooking failed for OrderCode: {OrderCode} after {ElapsedMs}ms", 
+                    OrderCode, stopwatch.ElapsedMilliseconds);
+                throw;
+            }
         }
 
         private async Task<CheckoutResponse> GetOrderInfo(PaymentInfo pay, ReservationsRepository repo)
         {
-            if (string.IsNullOrWhiteSpace(pay.OrderCode))
+            _logger.LogInformation("GetOrderInfo started for OrderCode: {OrderCode}", pay.OrderCode);
+            var stopwatch = System.Diagnostics.Stopwatch.StartNew();
+
+            try
             {
-                throw new ArgumentException("Invalid order code");
+                if (string.IsNullOrWhiteSpace(pay.OrderCode))
+                {
+                    _logger.LogWarning("GetOrderInfo failed: Invalid order code");
+                    throw new ArgumentException("Invalid order code");
+                }
+
+                var reservation = await repo.GetFullReservationFromPaymentCode(pay.OrderCode)
+                    ?? throw new InvalidOperationException("Reservation not found");
+
+                _logger.LogInformation("GetOrderInfo: Found reservation {ReservationId} for OrderCode: {OrderCode}", reservation.Id, pay.OrderCode);
+
+                var payment = reservation.Payments.FirstOrDefault(p => p.OrderCode == pay.OrderCode)
+                    ?? throw new InvalidOperationException("Payment not found");
+
+                _logger.LogInformation("GetOrderInfo: Updating payment status to failed for PaymentId: {PaymentId}", payment.Id);
+                await repo.UpdatePaymentFailed(payment);
+
+                var res = await GetCheckoutInfo(new SubmitSearchParameters(
+                    reservation.CheckIn.ToString("dd/MM/yyyy"),
+                    reservation.CheckOut.ToString("dd/MM/yyyy"),
+                    "",
+                    reservation.HotelCode,
+                    JsonSerializer.Serialize(reservation.Rates.Select(r => new SelectedRate { rateId = r.RateId, count = r.Quantity, searchParty = r.SearchParty?.Party ?? "" }))
+                ));
+
+                res.LabelErrorMessage = "Η πληρωμή απέτυχε. Παρακαλώ δοκιμάστε ξανά.";
+                res.ErrorCode = "PAY_FAILED";
+
+                stopwatch.Stop();
+                _logger.LogInformation("GetOrderInfo completed for OrderCode: {OrderCode}, ReservationId: {ReservationId} in {ElapsedMs}ms", 
+                    pay.OrderCode, reservation.Id, stopwatch.ElapsedMilliseconds);
+
+                return res;
             }
-
-            var reservation = await repo.GetFullReservationFromPaymentCode(pay.OrderCode)
-                ?? throw new InvalidOperationException("Reservation not found");
-
-            var payment = reservation.Payments.FirstOrDefault(p => p.OrderCode == pay.OrderCode)
-                ?? throw new InvalidOperationException("Payment not found");
-
-            await repo.UpdatePaymentFailed(payment);
-
-            var res = await GetCheckoutInfo(new SubmitSearchParameters(
-                reservation.CheckIn.ToString("dd/MM/yyyy"),
-                reservation.CheckOut.ToString("dd/MM/yyyy"),
-                "",
-                reservation.HotelCode,
-                JsonSerializer.Serialize(reservation.Rates.Select(r => new SelectedRate { rateId = r.RateId, count = r.Quantity, searchParty = r.SearchParty?.Party ?? "" }))
-            ));
-
-            res.LabelErrorMessage = "Η πληρωμή απέτυχε. Παρακαλώ δοκιμάστε ξανά.";
-            res.ErrorCode = "PAY_FAILED";
-
-            return res;
+            catch (Exception ex)
+            {
+                stopwatch.Stop();
+                _logger.LogError(ex, "GetOrderInfo failed for OrderCode: {OrderCode} after {ElapsedMs}ms", 
+                    pay.OrderCode, stopwatch.ElapsedMilliseconds);
+                throw;
+            }
         }
 
         private async Task<SuccessfulPaymentResponse> ConfirmPayment(PaymentInfo pay, ReservationsRepository repo, VivaService viva)
         {
-            if (string.IsNullOrWhiteSpace(pay.OrderCode) || string.IsNullOrWhiteSpace(pay.Tid))
-            {
-                throw new ArgumentException("Invalid payment info");
-            }
-
-            var reservation = await repo.GetReservationBasicDataByPaymentCode(pay.OrderCode);
-            if (reservation == null)
-            {
-                return new SuccessfulPaymentResponse(error: "Reservation not found", "NO_RES");
-            }
-            //await webHotelierPropertiesService.SendConfirmationEmail();
+            _logger.LogInformation("ConfirmPayment started for OrderCode: {OrderCode}, Tid: {Tid}", pay.OrderCode, pay.Tid);
+            var stopwatch = System.Diagnostics.Stopwatch.StartNew();
 
             try
             {
-                if (await viva.ValidatePayment(pay.OrderCode, pay.Tid, reservation.TotalAmount,reservation.PartialPayment.prepayAmount) && await repo.UpdatePaymentSucceed(pay.OrderCode, pay.Tid))
+                if (string.IsNullOrWhiteSpace(pay.OrderCode) || string.IsNullOrWhiteSpace(pay.Tid))
                 {
-                    await webHotelierPropertiesService.CreateBooking(reservation, repo);
-
-                    return new SuccessfulPaymentResponse
-                    {
-                        SuccessfulPayment = true,
-                        Data = new DataSuccess
-                        {
-                            CheckIn = reservation.CheckIn.ToString("dd/MM/yyyy"),
-                            CheckOut = reservation.CheckOut.ToString("dd/MM/yyyy"),
-                            HotelName = reservation.HotelName ?? "",
-                            ReservationId = reservation.Id
-                        }
-                    };
+                    _logger.LogWarning("ConfirmPayment failed: Invalid payment info - OrderCode: {OrderCode}, Tid: {Tid}", pay.OrderCode, pay.Tid);
+                    throw new ArgumentException("Invalid payment info");
                 }
-                else
+
+                var reservation = await repo.GetReservationBasicDataByPaymentCode(pay.OrderCode);
+                if (reservation == null)
                 {
+                    _logger.LogWarning("ConfirmPayment failed: Reservation not found for OrderCode: {OrderCode}", pay.OrderCode);
+                    return new SuccessfulPaymentResponse(error: "Reservation not found", "NO_RES");
+                }
+
+                _logger.LogInformation("ConfirmPayment: Found reservation {ReservationId}, TotalAmount: {TotalAmount}, PrepayAmount: {PrepayAmount}", 
+                    reservation.Id, reservation.TotalAmount, reservation.PartialPayment?.prepayAmount);
+
+                try
+                {
+                    _logger.LogDebug("ConfirmPayment: Validating payment with Viva for OrderCode: {OrderCode}", pay.OrderCode);
+                    if (await viva.ValidatePayment(pay.OrderCode, pay.Tid, reservation.TotalAmount, reservation.PartialPayment?.prepayAmount) && await repo.UpdatePaymentSucceed(pay.OrderCode, pay.Tid))
+                    {
+                        _logger.LogInformation("ConfirmPayment: Payment validated successfully for OrderCode: {OrderCode}, creating booking", pay.OrderCode);
+                        await webHotelierPropertiesService.CreateBooking(reservation, repo);
+
+                        stopwatch.Stop();
+                        _logger.LogInformation("ConfirmPayment completed successfully for OrderCode: {OrderCode}, ReservationId: {ReservationId} in {ElapsedMs}ms", 
+                            pay.OrderCode, reservation.Id, stopwatch.ElapsedMilliseconds);
+
+                        return new SuccessfulPaymentResponse
+                        {
+                            SuccessfulPayment = true,
+                            Data = new DataSuccess
+                            {
+                                CheckIn = reservation.CheckIn.ToString("dd/MM/yyyy"),
+                                CheckOut = reservation.CheckOut.ToString("dd/MM/yyyy"),
+                                HotelName = reservation.HotelName ?? "",
+                                ReservationId = reservation.Id
+                            }
+                        };
+                    }
+                    else
+                    {
+                        stopwatch.Stop();
+                        _logger.LogWarning("ConfirmPayment: Payment validation failed for OrderCode: {OrderCode}, ReservationId: {ReservationId} in {ElapsedMs}ms", 
+                            pay.OrderCode, reservation.Id, stopwatch.ElapsedMilliseconds);
+                        return new SuccessfulPaymentResponse(error: $"Υπήρξε πρόβλημα με την πληρωμή της κράτησής σας με αριθμό {reservation.Id}, παρακαλώ επικοινωνήστε μαζί μας.", "RES_ERROR");
+                    }
+                }
+                catch (Exception ex)
+                {
+                    stopwatch.Stop();
+                    _logger.LogError(ex, "ConfirmPayment: Exception during payment validation/booking for OrderCode: {OrderCode}, ReservationId: {ReservationId} in {ElapsedMs}ms", 
+                        pay.OrderCode, reservation.Id, stopwatch.ElapsedMilliseconds);
                     return new SuccessfulPaymentResponse(error: $"Υπήρξε πρόβλημα με την πληρωμή της κράτησής σας με αριθμό {reservation.Id}, παρακαλώ επικοινωνήστε μαζί μας.", "RES_ERROR");
                 }
             }
             catch (Exception ex)
             {
-                return new SuccessfulPaymentResponse(error: $"Υπήρξε πρόβλημα με την πληρωμή της κράτησής σας με αριθμό {reservation.Id}, παρακαλώ επικοινωνήστε μαζί μας.", "RES_ERROR");
+                stopwatch.Stop();
+                _logger.LogError(ex, "ConfirmPayment failed for OrderCode: {OrderCode} after {ElapsedMs}ms", 
+                    pay.OrderCode, stopwatch.ElapsedMilliseconds);
+                throw;
             }
         }
 
         private async Task<PreparePaymentResponse> PreparePayment(BookingRequest pars, ReservationsRepository repo, VivaService viva)
         {
-            #region Param Validation
+            _logger.LogInformation("PreparePayment started for HotelId: {HotelId}, CheckIn: {CheckIn}, CheckOut: {CheckOut}, TotalPrice: {TotalPrice}, PrepayAmount: {PrepayAmount}", 
+                pars.HotelId, pars.CheckIn, pars.CheckOut, pars.TotalPrice, pars.PrepayAmount);
+            var stopwatch = System.Diagnostics.Stopwatch.StartNew();
 
-            if (!DateTime.TryParseExact(pars.CheckIn, "dd/MM/yyyy", CultureInfo.InvariantCulture, DateTimeStyles.None, out var parsedCheckin))
+            try
             {
-                throw new InvalidCastException("Invalid checkin date format. Use dd/MM/yyyy.");
-            }
+                #region Param Validation
 
-            if (!DateTime.TryParseExact(pars.CheckOut, "dd/MM/yyyy", CultureInfo.InvariantCulture, DateTimeStyles.None, out var parsedCheckOut))
-            {
-                throw new InvalidCastException("Invalid checkout date format. Use dd/MM/yyyy.");
-            }
-
-            List<SelectedRate>? SelectedRates;
-            if (string.IsNullOrWhiteSpace(pars.SelectedRates))
-            {
-                throw new InvalidCastException("Invalid selected rates");
-            }
-            else
-            {
-                SelectedRates = RatesToList(pars.SelectedRates);
-                if (SelectedRates == null)
+                if (!DateTime.TryParseExact(pars.CheckIn, "dd/MM/yyyy", CultureInfo.InvariantCulture, DateTimeStyles.None, out var parsedCheckin))
                 {
+                    _logger.LogWarning("PreparePayment failed: Invalid checkin date format {CheckIn}", pars.CheckIn);
+                    throw new InvalidCastException("Invalid checkin date format. Use dd/MM/yyyy.");
+                }
+
+                if (!DateTime.TryParseExact(pars.CheckOut, "dd/MM/yyyy", CultureInfo.InvariantCulture, DateTimeStyles.None, out var parsedCheckOut))
+                {
+                    _logger.LogWarning("PreparePayment failed: Invalid checkout date format {CheckOut}", pars.CheckOut);
+                    throw new InvalidCastException("Invalid checkout date format. Use dd/MM/yyyy.");
+                }
+
+                List<SelectedRate>? SelectedRates;
+                if (string.IsNullOrWhiteSpace(pars.SelectedRates))
+                {
+                    _logger.LogWarning("PreparePayment failed: Invalid selected rates");
                     throw new InvalidCastException("Invalid selected rates");
                 }
-            }
-
-            string party;
-            if (string.IsNullOrWhiteSpace(pars.Party))
-            {
-                if (pars.Adults == null || pars.Adults < 1)
+                else
                 {
-                    throw new ArgumentException("There must be at least one adult in the room.");
+                    SelectedRates = RatesToList(pars.SelectedRates);
+                    if (SelectedRates == null)
+                    {
+                        _logger.LogWarning("PreparePayment failed: Could not parse selected rates");
+                        throw new InvalidCastException("Invalid selected rates");
+                    }
                 }
 
-                party = CreateParty(pars.Adults.Value, pars.Children);
-            }
-            else
-            {
-                party = BuildMultiRoomJson(pars.Party);
-            }
+                _logger.LogDebug("PreparePayment: Parsed {RateCount} selected rates", SelectedRates.Count);
 
-            var hotelInfo = pars.HotelId?.Split('-');
-            if (hotelInfo?.Length != 2)
-            {
-                throw new ArgumentException("Invalid hotelId format. Use bbox-lat-lon.");
-            }
-
-            #endregion Param Validation
-
-            WHSingleAvailabilityRequest whReq = new()
-            {
-                PropertyId = hotelInfo[1],
-                CheckIn = parsedCheckin.ToString("yyyy-MM-dd"),
-                CheckOut = parsedCheckOut.ToString("yyyy-MM-dd"),
-                Party = party
-            };
-
-            var hotelTask = webHotelierPropertiesService.GetHotelInfo(hotelInfo[1]);
-            var availTask = webHotelierPropertiesService.GetHotelAvailabilityAsync(whReq, parsedCheckin, repo, SelectedRates, pars.couponCode);
-            await Task.WhenAll(availTask, hotelTask);
-
-            SingleAvailabilityResponse? availRes = await availTask;
-            WHHotelInfoResponse? hotelRes = await hotelTask;
-
-            if (availRes.Data != null)
-            {
-                availRes.Data.Provider = Provider.WebHotelier;
-            }
-
-            int nights = (parsedCheckOut - parsedCheckin).Days;
-
-            var res = new CheckoutResponse
-            {
-                HotelData = new CheckoutHotelInfo
+                string party;
+                if (string.IsNullOrWhiteSpace(pars.Party))
                 {
-                    Id = hotelRes.Data.Id,
-                    Name = hotelRes.Data.Name
-                },
-                CheckIn = pars.CheckIn,
-                CouponUsed = pars.couponCode,
-                CouponValid = availRes.CouponValid,
-                CouponDiscount = availRes.CouponDiscount,
-                CheckOut = pars.CheckOut,
-                CheckInTime = hotelRes.Data.Operation.CheckinTime,
-                CheckOutTime = hotelRes.Data.Operation.CheckoutTime,
-                Rooms = GetDistinctRoomsPerRate(availRes.Data?.Rooms)
-            };
-
-            if (!AvailabilityProcessor.HasSufficientAvailability(availRes, SelectedRates))
-            {
-                return new PreparePaymentResponse
-                {
-                    ErrorCode = "Error",
-                    ErrorMessage = "Not enough rooms"
-                };
-            }
-
-            foreach (var selectedRate in SelectedRates)
-            {
-                bool found = false;
-                foreach (var room in availRes.Data?.Rooms ?? [])
-                {
-                    foreach (var rate in room.Rates)
+                    if (pars.Adults == null || pars.Adults < 1)
                     {
-                        if (selectedRate.roomId != null && selectedRate.rateId == null)
-                        {
-                            selectedRate.rateId = selectedRate.roomId;
-                        }
-                        if (rate.Id.Equals(selectedRate.rateId) && rate.SearchParty.party?.Equals(selectedRate.searchParty) == true && rate.RemainingRooms >= selectedRate.count)
-                        {
-                            if (res.Rooms.FirstOrDefault(r => r.RateId.Equals(selectedRate.rateId) && rate.SearchParty.party?.Equals(selectedRate.searchParty) == true) is CheckoutRoomInfo cri)
-                            {
-                                cri.SelectedQuantity = selectedRate.count;
-                            }
-                            else
-                                throw new InvalidOperationException("Rates don't exist any more");
+                        _logger.LogWarning("PreparePayment failed: At least one adult required, Adults: {Adults}", pars.Adults);
+                        throw new ArgumentException("There must be at least one adult in the room.");
+                    }
 
-                            found = true;
+                    party = CreateParty(pars.Adults.Value, pars.Children);
+                }
+                else
+                {
+                    party = BuildMultiRoomJson(pars.Party);
+                }
+
+                var hotelInfo = pars.HotelId?.Split('-');
+                if (hotelInfo?.Length != 2)
+                {
+                    _logger.LogWarning("PreparePayment failed: Invalid hotelId format {HotelId}", pars.HotelId);
+                    throw new ArgumentException("Invalid hotelId format. Use bbox-lat-lon.");
+                }
+
+                #endregion Param Validation
+
+                _logger.LogDebug("PreparePayment: Fetching hotel info and availability for HotelId: {HotelId}", pars.HotelId);
+
+                WHSingleAvailabilityRequest whReq = new()
+                {
+                    PropertyId = hotelInfo[1],
+                    CheckIn = parsedCheckin.ToString("yyyy-MM-dd"),
+                    CheckOut = parsedCheckOut.ToString("yyyy-MM-dd"),
+                    Party = party
+                };
+
+                var hotelTask = webHotelierPropertiesService.GetHotelInfo(hotelInfo[1]);
+                var availTask = webHotelierPropertiesService.GetHotelAvailabilityAsync(whReq, parsedCheckin, repo, SelectedRates, pars.couponCode);
+                await Task.WhenAll(availTask, hotelTask);
+
+                SingleAvailabilityResponse? availRes = await availTask;
+                WHHotelInfoResponse? hotelRes = await hotelTask;
+
+                if (availRes.Data != null)
+                {
+                    availRes.Data.Provider = Provider.WebHotelier;
+                }
+
+                int nights = (parsedCheckOut - parsedCheckin).Days;
+
+                var res = new CheckoutResponse
+                {
+                    HotelData = new CheckoutHotelInfo
+                    {
+                        Id = hotelRes.Data.Id,
+                        Name = hotelRes.Data.Name
+                    },
+                    CheckIn = pars.CheckIn,
+                    CouponUsed = pars.couponCode,
+                    CouponValid = availRes.CouponValid,
+                    CouponDiscount = availRes.CouponDiscount,
+                    CheckOut = pars.CheckOut,
+                    CheckInTime = hotelRes.Data.Operation.CheckinTime,
+                    CheckOutTime = hotelRes.Data.Operation.CheckoutTime,
+                    Rooms = GetDistinctRoomsPerRate(availRes.Data?.Rooms)
+                };
+
+                if (!AvailabilityProcessor.HasSufficientAvailability(availRes, SelectedRates))
+                {
+                    _logger.LogWarning("PreparePayment failed: Not enough rooms available for HotelId: {HotelId}", pars.HotelId);
+                    return new PreparePaymentResponse
+                    {
+                        ErrorCode = "Error",
+                        ErrorMessage = "Not enough rooms"
+                    };
+                }
+
+                foreach (var selectedRate in SelectedRates)
+                {
+                    bool found = false;
+                    foreach (var room in availRes.Data?.Rooms ?? [])
+                    {
+                        foreach (var rate in room.Rates)
+                        {
+                            if (selectedRate.roomId != null && selectedRate.rateId == null)
+                            {
+                                selectedRate.rateId = selectedRate.roomId;
+                            }
+                            if (rate.Id.Equals(selectedRate.rateId) && rate.SearchParty.party?.Equals(selectedRate.searchParty) == true && rate.RemainingRooms >= selectedRate.count)
+                            {
+                                if (res.Rooms.FirstOrDefault(r => r.RateId.Equals(selectedRate.rateId) && rate.SearchParty.party?.Equals(selectedRate.searchParty) == true) is CheckoutRoomInfo cri)
+                                {
+                                    cri.SelectedQuantity = selectedRate.count;
+                                }
+                                else
+                                {
+                                    _logger.LogWarning("PreparePayment failed: Rates don't exist anymore for RateId: {RateId}", selectedRate.rateId);
+                                    throw new InvalidOperationException("Rates don't exist any more");
+                                }
+
+                                found = true;
+                                break;
+                            }
+                        }
+                        if (found)
+                        {
                             break;
                         }
                     }
-                    if (found)
+                    if (!found)
                     {
-                        break;
+                        _logger.LogWarning("PreparePayment failed: Rate not found - RateId: {RateId}", selectedRate.rateId);
+                        throw new InvalidOperationException("Rates don't exist any more");
                     }
                 }
-                if (!found)
+
+                CheckoutProcessor.CalculatePayments(res);
+
+                res.TotalPrice = res.Rooms.Sum(r => (r.TotalPrice * r.SelectedQuantity));
+
+                if (res.TotalPrice != pars.TotalPrice || (res.PartialPayment != null && (res.PartialPayment.prepayAmount != pars.PrepayAmount && res.TotalPrice != pars.PrepayAmount)))
                 {
-                    throw new InvalidOperationException("Rates don't exist any more");
+                    _logger.LogWarning("PreparePayment failed: Price has changed. Expected: {ExpectedTotal}/{ExpectedPrepay}, Got: {ActualTotal}/{ActualPrepay}", 
+                        pars.TotalPrice, pars.PrepayAmount, res.TotalPrice, res.PartialPayment?.prepayAmount);
+                    throw new InvalidOperationException("Price has changed");
                 }
-            }
 
-            CheckoutProcessor.CalculatePayments(res);
+                _logger.LogInformation("PreparePayment: Creating Viva payment for Amount: {Amount}", pars.PrepayAmount);
 
-            res.TotalPrice = res.Rooms.Sum(r => (r.TotalPrice * r.SelectedQuantity));
-
-            if (res.TotalPrice != pars.TotalPrice || (res.PartialPayment != null && (res.PartialPayment.prepayAmount != pars.PrepayAmount && res.TotalPrice != pars.PrepayAmount)))
-            {
-                throw new InvalidOperationException("Price has changed");
-            }
-
-            var payment = new VivaPaymentRequest
-            {
-                Amount = (int)(pars.PrepayAmount * 100),
-                CustomerTrns = $"reservation for {parsedCheckin:dd_MM_yy}-{parsedCheckOut:dd_MM_yy} in {res.HotelData.Name}",
-                Customer = new VivaCustomer
+                var payment = new VivaPaymentRequest
                 {
-                    CountryCode = "GR",
-                    Email = pars.CustomerInfo?.Email ?? string.Empty,
-                    FullName = $"{pars.CustomerInfo?.FirstName} {pars.CustomerInfo?.LastName}",
-                    Phone = pars.CustomerInfo?.Phone ?? string.Empty
-                },
-                MerchantTrns = $"reservation for {parsedCheckin:dd_MM_yy}-{parsedCheckOut:dd_MM_yy} in {res.HotelData.Name}"
-            };
+                    Amount = (int)(pars.PrepayAmount * 100),
+                    CustomerTrns = $"reservation for {parsedCheckin:dd_MM_yy}-{parsedCheckOut:dd_MM_yy} in {res.HotelData.Name}",
+                    Customer = new VivaCustomer
+                    {
+                        CountryCode = "GR",
+                        Email = pars.CustomerInfo?.Email ?? string.Empty,
+                        FullName = $"{pars.CustomerInfo?.FirstName} {pars.CustomerInfo?.LastName}",
+                        Phone = pars.CustomerInfo?.Phone ?? string.Empty
+                    },
+                    MerchantTrns = $"reservation for {parsedCheckin:dd_MM_yy}-{parsedCheckOut:dd_MM_yy} in {res.HotelData.Name}"
+                };
 
-            var orderCode = await viva.GetPaymentCode(payment);
+                var orderCode = await viva.GetPaymentCode(payment);
+                _logger.LogInformation("PreparePayment: Received OrderCode: {OrderCode} from Viva", orderCode);
 
-            await repo.CreateTemporaryExternalReservation(res, pars, parsedCheckin, parsedCheckOut, payment, orderCode, party);
+                await repo.CreateTemporaryExternalReservation(res, pars, parsedCheckin, parsedCheckOut, payment, orderCode, party);
 
-            PreparePaymentResponse response = new()
+                stopwatch.Stop();
+                _logger.LogInformation("PreparePayment completed for HotelId: {HotelId}, OrderCode: {OrderCode} in {ElapsedMs}ms", 
+                    pars.HotelId, orderCode, stopwatch.ElapsedMilliseconds);
+
+                PreparePaymentResponse response = new()
+                {
+                    OrderCode = orderCode
+                };
+                return response;
+            }
+            catch (Exception ex) when (ex is not InvalidCastException && ex is not ArgumentException && ex is not InvalidOperationException)
             {
-                OrderCode = orderCode
-            };
-            return response;
+                stopwatch.Stop();
+                _logger.LogError(ex, "PreparePayment failed for HotelId: {HotelId} after {ElapsedMs}ms", 
+                    pars.HotelId, stopwatch.ElapsedMilliseconds);
+                throw;
+            }
         }
 
         private async Task<CheckoutResponse> ApplyCoupon(ReservationRequest reservationRequest, ReservationsRepository repo)
         {
-            #region Param Validation
+            _logger.LogInformation("ApplyCoupon started for HotelId: {HotelId}, CouponCode: {CouponCode}", 
+                reservationRequest.reservationDetails.hotelId, reservationRequest.couponCode);
+            var stopwatch = System.Diagnostics.Stopwatch.StartNew();
 
-            if (!DateTime.TryParseExact(reservationRequest.reservationDetails.checkIn, "dd/MM/yyyy", CultureInfo.InvariantCulture, DateTimeStyles.None, out var parsedCheckin))
+            try
             {
-                throw new InvalidCastException("Invalid checkin date format. Use dd/MM/yyyy.");
-            }
+                #region Param Validation
 
-            if (!DateTime.TryParseExact(reservationRequest.reservationDetails.checkOut, "dd/MM/yyyy", CultureInfo.InvariantCulture, DateTimeStyles.None, out var parsedCheckOut))
-            {
-                throw new InvalidCastException("Invalid checkout date format. Use dd/MM/yyyy.");
-            }
-
-            List<SelectedRate>? Selectedrates;
-            if (string.IsNullOrWhiteSpace(reservationRequest.reservationDetails.selectedRates))
-            {
-                throw new InvalidCastException("Invalid selected rates");
-            }
-            else
-            {
-                Selectedrates = RatesToList(reservationRequest.reservationDetails.selectedRates);
-                if (Selectedrates == null)
+                if (!DateTime.TryParseExact(reservationRequest.reservationDetails.checkIn, "dd/MM/yyyy", CultureInfo.InvariantCulture, DateTimeStyles.None, out var parsedCheckin))
                 {
+                    _logger.LogWarning("ApplyCoupon failed: Invalid checkin date format");
+                    throw new InvalidCastException("Invalid checkin date format. Use dd/MM/yyyy.");
+                }
+
+                if (!DateTime.TryParseExact(reservationRequest.reservationDetails.checkOut, "dd/MM/yyyy", CultureInfo.InvariantCulture, DateTimeStyles.None, out var parsedCheckOut))
+                {
+                    _logger.LogWarning("ApplyCoupon failed: Invalid checkout date format");
+                    throw new InvalidCastException("Invalid checkout date format. Use dd/MM/yyyy.");
+                }
+
+                List<SelectedRate>? Selectedrates;
+                if (string.IsNullOrWhiteSpace(reservationRequest.reservationDetails.selectedRates))
+                {
+                    _logger.LogWarning("ApplyCoupon failed: Invalid selected rates");
                     throw new InvalidCastException("Invalid selected rates");
                 }
-            }
-
-            var hotelInfo = reservationRequest.reservationDetails.hotelId?.Split('-');
-            if (hotelInfo?.Length != 2)
-            {
-                throw new ArgumentException("Invalid hotelId format. Use bbox-lat-lon.");
-            }
-
-            #endregion Param Validation
-
-            WHSingleAvailabilityRequest whReq = new()
-            {
-                PropertyId = hotelInfo[1],
-                CheckIn = parsedCheckin.ToString("yyyy-MM-dd"),
-                CheckOut = parsedCheckOut.ToString("yyyy-MM-dd"),
-                Party = null
-            };
-
-            var hotelTask = webHotelierPropertiesService.GetHotelInfo(hotelInfo[1]);
-            var availTask = webHotelierPropertiesService.GetHotelAvailabilityAsync(whReq, parsedCheckin, repo, Selectedrates,reservationRequest.couponCode);
-            await Task.WhenAll(availTask, hotelTask);
-
-            SingleAvailabilityResponse? availRes = await availTask;
-            WHHotelInfoResponse? hotelRes = await hotelTask;
-            var hotelData = hotelRes.Data!.ToContracts();
-
-            if (availRes.Data != null)
-            {
-                availRes.Data.Provider = Provider.WebHotelier;
-            }
-
-            hotelData.Provider = Provider.WebHotelier;
-
-            int nights = (parsedCheckOut - parsedCheckin).Days;
-
-            var res = new CheckoutResponse
-            {
-                ErrorCode = hotelRes.ErrorCode,
-                CouponUsed = reservationRequest.couponCode,
-                CouponDiscount = availRes.CouponDiscount,
-                CouponValid = availRes.CouponValid,
-                LabelErrorMessage = hotelRes.ErrorMessage,
-                HotelData = new CheckoutHotelInfo
+                else
                 {
-                    Id = hotelData.Id,
-                    Name = hotelData.Name,
-                    Image = hotelData.LargePhotos.FirstOrDefault() ?? "",
-                    Operation = hotelData.Operation,
-                    Rating = hotelData.Rating
-                },
-                CheckIn = reservationRequest.reservationDetails.checkIn,
-                CheckOut = reservationRequest.reservationDetails.checkOut,
-                Nights = nights,
-                Rooms = GetDistinctRoomsPerRate(availRes.Data?.Rooms),//TODO: ti kanei afto?
-                SelectedPeople = GetPartyInfo(Selectedrates)
-            };
-
-            if (!AvailabilityProcessor.HasSufficientAvailability(availRes, Selectedrates))
-            {
-                res.ErrorCode = "Error";
-                res.ErrorMessage = "Not enough rooms";
-                res.Rooms = new List<CheckoutRoomInfo>();
-                return res;
-            }
-
-            //TODO: recheck this validation
-            //i might need to add something with sums. cause when i have the same room for dif party and remaing is 1 i need error
-            foreach (var selectedRate in Selectedrates)
-            {
-                bool found = false;
-                foreach (var room in availRes.Data?.Rooms ?? [])
-                {
-                    foreach (var rate in room.Rates)
+                    Selectedrates = RatesToList(reservationRequest.reservationDetails.selectedRates);
+                    if (Selectedrates == null)
                     {
-                        if (selectedRate.roomId != null && selectedRate.rateId == null)
-                        {
-                            selectedRate.rateId = selectedRate.roomId;
-                        }
+                        _logger.LogWarning("ApplyCoupon failed: Could not parse selected rates");
+                        throw new InvalidCastException("Invalid selected rates");
+                    }
+                }
 
-                        if (rate.Id.Equals(selectedRate.rateId) && rate.SearchParty.party?.Equals(selectedRate.searchParty) == true && rate.RemainingRooms >= selectedRate.count)
+                var hotelInfo = reservationRequest.reservationDetails.hotelId?.Split('-');
+                if (hotelInfo?.Length != 2)
+                {
+                    _logger.LogWarning("ApplyCoupon failed: Invalid hotelId format");
+                    throw new ArgumentException("Invalid hotelId format. Use bbox-lat-lon.");
+                }
+
+                #endregion Param Validation
+
+                _logger.LogDebug("ApplyCoupon: Fetching hotel info and availability");
+
+                WHSingleAvailabilityRequest whReq = new()
+                {
+                    PropertyId = hotelInfo[1],
+                    CheckIn = parsedCheckin.ToString("yyyy-MM-dd"),
+                    CheckOut = parsedCheckOut.ToString("yyyy-MM-dd"),
+                    Party = null
+                };
+
+                var hotelTask = webHotelierPropertiesService.GetHotelInfo(hotelInfo[1]);
+                var availTask = webHotelierPropertiesService.GetHotelAvailabilityAsync(whReq, parsedCheckin, repo, Selectedrates,reservationRequest.couponCode);
+                await Task.WhenAll(availTask, hotelTask);
+
+                SingleAvailabilityResponse? availRes = await availTask;
+                WHHotelInfoResponse? hotelRes = await hotelTask;
+                var hotelData = hotelRes.Data!.ToContracts();
+
+                if (availRes.Data != null)
+                {
+                    availRes.Data.Provider = Provider.WebHotelier;
+                }
+
+                hotelData.Provider = Provider.WebHotelier;
+
+                int nights = (parsedCheckOut - parsedCheckin).Days;
+
+                var res = new CheckoutResponse
+                {
+                    ErrorCode = hotelRes.ErrorCode,
+                    CouponUsed = reservationRequest.couponCode,
+                    CouponDiscount = availRes.CouponDiscount,
+                    CouponValid = availRes.CouponValid,
+                    LabelErrorMessage = hotelRes.ErrorMessage,
+                    HotelData = new CheckoutHotelInfo
+                    {
+                        Id = hotelData.Id,
+                        Name = hotelData.Name,
+                        Image = hotelData.LargePhotos.FirstOrDefault() ?? "",
+                        Operation = hotelData.Operation,
+                        Rating = hotelData.Rating
+                    },
+                    CheckIn = reservationRequest.reservationDetails.checkIn,
+                    CheckOut = reservationRequest.reservationDetails.checkOut,
+                    Nights = nights,
+                    Rooms = GetDistinctRoomsPerRate(availRes.Data?.Rooms),
+                    SelectedPeople = GetPartyInfo(Selectedrates)
+                };
+
+                _logger.LogInformation("ApplyCoupon: CouponValid: {CouponValid}, CouponDiscount: {CouponDiscount}", 
+                    availRes.CouponValid, availRes.CouponDiscount);
+
+                if (!AvailabilityProcessor.HasSufficientAvailability(availRes, Selectedrates))
+                {
+                    _logger.LogWarning("ApplyCoupon: Not enough rooms available");
+                    res.ErrorCode = "Error";
+                    res.ErrorMessage = "Not enough rooms";
+                    res.Rooms = new List<CheckoutRoomInfo>();
+                    return res;
+                }
+
+                //TODO: recheck this validation
+                //i might need to add something with sums. cause when i have the same room for dif party and remaing is 1 i need error
+                foreach (var selectedRate in Selectedrates)
+                {
+                    bool found = false;
+                    foreach (var room in availRes.Data?.Rooms ?? [])
+                    {
+                        foreach (var rate in room.Rates)
                         {
-                            if (res.Rooms.FirstOrDefault(r => r.RateId.Equals(selectedRate.rateId) && rate.SearchParty.party?.Equals(selectedRate.searchParty) == true) is CheckoutRoomInfo cri)
+                            if (selectedRate.roomId != null && selectedRate.rateId == null)
                             {
-                                cri.SelectedQuantity = selectedRate.count;
+                                selectedRate.rateId = selectedRate.roomId;
                             }
-                            else
-                                throw new InvalidOperationException("Rates don't exist any more");
 
-                            found = true;
+                            if (rate.Id.Equals(selectedRate.rateId) && rate.SearchParty.party?.Equals(selectedRate.searchParty) == true && rate.RemainingRooms >= selectedRate.count)
+                            {
+                                if (res.Rooms.FirstOrDefault(r => r.RateId.Equals(selectedRate.rateId) && rate.SearchParty.party?.Equals(selectedRate.searchParty) == true) is CheckoutRoomInfo cri)
+                                {
+                                    cri.SelectedQuantity = selectedRate.count;
+                                }
+                                else
+                                    throw new InvalidOperationException("Rates don't exist any more");
+
+                                found = true;
+                                break;
+                            }
+                        }
+                        if (found)
+                        {
                             break;
                         }
                     }
-                    if (found)
+                    if (!found)
                     {
-                        break;
+                        throw new InvalidOperationException("Rates don't exist any more");
                     }
                 }
-                if (!found)
-                {
-                    throw new InvalidOperationException("Rates don't exist any more");
-                }
-            }
-            CheckoutProcessor.CalculatePayments(res);
-            res.TotalPrice = res.Rooms.Sum(r => (r.TotalPrice * r.SelectedQuantity));
+                CheckoutProcessor.CalculatePayments(res);
+                res.TotalPrice = res.Rooms.Sum(r => (r.TotalPrice * r.SelectedQuantity));
 
-            return res;
+                stopwatch.Stop();
+                _logger.LogInformation("ApplyCoupon completed for HotelId: {HotelId}, TotalPrice: {TotalPrice} in {ElapsedMs}ms", 
+                    reservationRequest.reservationDetails.hotelId, res.TotalPrice, stopwatch.ElapsedMilliseconds);
+
+                return res;
+            }
+            catch (Exception ex) when (ex is not InvalidCastException && ex is not ArgumentException && ex is not InvalidOperationException)
+            {
+                stopwatch.Stop();
+                _logger.LogError(ex, "ApplyCoupon failed after {ElapsedMs}ms", stopwatch.ElapsedMilliseconds);
+                throw;
+            }
         }
 
         private async Task<CheckoutResponse> GetCheckoutInfo(SubmitSearchParameters pars)
         {
-            #region Param Validation
+            _logger.LogInformation("GetCheckoutInfo started for HotelId: {HotelId}, CheckIn: {CheckIn}, CheckOut: {CheckOut}", 
+                pars.hotelId, pars.checkin, pars.checkOut);
+            var stopwatch = System.Diagnostics.Stopwatch.StartNew();
 
-            if (!DateTime.TryParseExact(pars.checkin, "dd/MM/yyyy", CultureInfo.InvariantCulture, DateTimeStyles.None, out var parsedCheckin))
+            try
             {
-                throw new InvalidCastException("Invalid checkin date format. Use dd/MM/yyyy.");
-            }
+                #region Param Validation
 
-            if (!DateTime.TryParseExact(pars.checkOut, "dd/MM/yyyy", CultureInfo.InvariantCulture, DateTimeStyles.None, out var parsedCheckOut))
-            {
-                throw new InvalidCastException("Invalid checkout date format. Use dd/MM/yyyy.");
-            }
-
-            List<SelectedRate>? Selectedrates;
-            if (string.IsNullOrWhiteSpace(pars.selectedRates))
-            {
-                throw new InvalidCastException("Invalid selected rates");
-            }
-            else
-            {
-                Selectedrates = RatesToList(pars.selectedRates);
-                if (Selectedrates == null)
+                if (!DateTime.TryParseExact(pars.checkin, "dd/MM/yyyy", CultureInfo.InvariantCulture, DateTimeStyles.None, out var parsedCheckin))
                 {
+                    _logger.LogWarning("GetCheckoutInfo failed: Invalid checkin date format");
+                    throw new InvalidCastException("Invalid checkin date format. Use dd/MM/yyyy.");
+                }
+
+                if (!DateTime.TryParseExact(pars.checkOut, "dd/MM/yyyy", CultureInfo.InvariantCulture, DateTimeStyles.None, out var parsedCheckOut))
+                {
+                    _logger.LogWarning("GetCheckoutInfo failed: Invalid checkout date format");
+                    throw new InvalidCastException("Invalid checkout date format. Use dd/MM/yyyy.");
+                }
+
+                List<SelectedRate>? Selectedrates;
+                if (string.IsNullOrWhiteSpace(pars.selectedRates))
+                {
+                    _logger.LogWarning("GetCheckoutInfo failed: Invalid selected rates");
                     throw new InvalidCastException("Invalid selected rates");
                 }
-            }
-
-            //string party;
-            //if (string.IsNullOrWhiteSpace(pars.party))
-            //{
-            //    if (pars.adults == null || pars.adults < 1)
-            //    {
-            //        throw new ArgumentException("There must be at least one adult in the room.");
-            //    }
-
-            //    party = CreateParty(pars.adults.Value, pars.children);
-            //}
-            //else
-            //{
-            //    party = BuildMultiRoomJson(pars.party);
-            //}
-
-            var hotelInfo = pars.hotelId?.Split('-');
-            if (hotelInfo?.Length != 2)
-            {
-                throw new ArgumentException("Invalid hotelId format. Use bbox-lat-lon.");
-            }
-
-            #endregion Param Validation
-
-            WHSingleAvailabilityRequest whReq = new()
-            {
-                PropertyId = hotelInfo[1],
-                CheckIn = parsedCheckin.ToString("yyyy-MM-dd"),
-                CheckOut = parsedCheckOut.ToString("yyyy-MM-dd"),
-                Party = null
-            };
-
-            var hotelTask = webHotelierPropertiesService.GetHotelInfo(hotelInfo[1]);
-            var availTask = webHotelierPropertiesService.GetHotelAvailabilityAsync(whReq, parsedCheckin, null, Selectedrates);
-            await Task.WhenAll(availTask, hotelTask);
-
-            SingleAvailabilityResponse? availRes = await availTask;
-            WHHotelInfoResponse? hotelRes = await hotelTask;
-            var hotelData = hotelRes.Data!.ToContracts();
-
-            if (availRes.Data != null)
-            {
-                availRes.Data.Provider = Provider.WebHotelier;
-            }
-
-            hotelData.Provider = Provider.WebHotelier;
-
-            int nights = (parsedCheckOut - parsedCheckin).Days;
-
-            var res = new CheckoutResponse
-            {
-                ErrorCode = hotelRes.ErrorCode,
-                LabelErrorMessage = hotelRes.ErrorMessage,
-                CouponUsed = pars.couponCode,
-                CouponValid = availRes.CouponValid,
-                CouponDiscount = availRes.CouponDiscount,
-                HotelData = new CheckoutHotelInfo
+                else
                 {
-                    Id = hotelData.Id,
-                    Name = hotelData.Name,
-                    Image = hotelData.LargePhotos.FirstOrDefault() ?? "",
-                    Operation = hotelData.Operation,
-                    Rating = hotelData.Rating
-                },
-                CheckIn = pars.checkin,
-                CheckOut = pars.checkOut,
-                Nights = nights,
-                Rooms = GetDistinctRoomsPerRate(availRes.Data?.Rooms),//TODO: ti kanei afto?
-                SelectedPeople = GetPartyInfo(Selectedrates)
-            };
-
-            if (!AvailabilityProcessor.HasSufficientAvailability(availRes, Selectedrates))
-            {
-                res.ErrorCode = "Error";
-                res.ErrorMessage = "Not enough rooms";
-                res.Rooms = new List<CheckoutRoomInfo>();
-                return res;
-            }
-
-            //TODO: recheck this validation
-            //i might need to add something with sums. cause when i have the same room for dif party and remaing is 1 i need error
-            foreach (var selectedRate in Selectedrates)
-            {
-                bool found = false;
-                foreach (var room in availRes.Data?.Rooms ?? [])
-                {
-                    foreach (var rate in room.Rates)
+                    Selectedrates = RatesToList(pars.selectedRates);
+                    if (Selectedrates == null)
                     {
-                        if (selectedRate.roomId != null && selectedRate.rateId == null)
-                        {
-                            selectedRate.rateId = selectedRate.roomId;
-                        }
+                        _logger.LogWarning("GetCheckoutInfo failed: Could not parse selected rates");
+                        throw new InvalidCastException("Invalid selected rates");
+                    }
+                }
 
-                        if (rate.Id.Equals(selectedRate.rateId) && rate.SearchParty.party?.Equals(selectedRate.searchParty) == true && rate.RemainingRooms >= selectedRate.count)
+                //string party;
+                //if (string.IsNullOrWhiteSpace(pars.party))
+                //{
+                //    if (pars.adults == null || pars.adults < 1)
+                //    {
+                //        throw new ArgumentException("There must be at least one adult in the room.");
+                //    }
+
+                //    party = CreateParty(pars.adults.Value, pars.children);
+                //}
+                //else
+                //{
+                //    party = BuildMultiRoomJson(pars.party);
+                //}
+
+                var hotelInfo = pars.hotelId?.Split('-');
+                if (hotelInfo?.Length != 2)
+                {
+                    _logger.LogWarning("GetCheckoutInfo failed: Invalid hotelId format");
+                    throw new ArgumentException("Invalid hotelId format. Use bbox-lat-lon.");
+                }
+
+                #endregion Param Validation
+
+                _logger.LogDebug("GetCheckoutInfo: Fetching hotel info and availability");
+
+                WHSingleAvailabilityRequest whReq = new()
+                {
+                    PropertyId = hotelInfo[1],
+                    CheckIn = parsedCheckin.ToString("yyyy-MM-dd"),
+                    CheckOut = parsedCheckOut.ToString("yyyy-MM-dd"),
+                    Party = null
+                };
+
+                var hotelTask = webHotelierPropertiesService.GetHotelInfo(hotelInfo[1]);
+                var availTask = webHotelierPropertiesService.GetHotelAvailabilityAsync(whReq, parsedCheckin, null, Selectedrates);
+                await Task.WhenAll(availTask, hotelTask);
+
+                SingleAvailabilityResponse? availRes = await availTask;
+                WHHotelInfoResponse? hotelRes = await hotelTask;
+                var hotelData = hotelRes.Data!.ToContracts();
+
+                if (availRes.Data != null)
+                {
+                    availRes.Data.Provider = Provider.WebHotelier;
+                }
+
+                hotelData.Provider = Provider.WebHotelier;
+
+                int nights = (parsedCheckOut - parsedCheckin).Days;
+
+                var res = new CheckoutResponse
+                {
+                    ErrorCode = hotelRes.ErrorCode,
+                    LabelErrorMessage = hotelRes.ErrorMessage,
+                    CouponUsed = pars.couponCode,
+                    CouponValid = availRes.CouponValid,
+                    CouponDiscount = availRes.CouponDiscount,
+                    HotelData = new CheckoutHotelInfo
+                    {
+                        Id = hotelData.Id,
+                        Name = hotelData.Name,
+                        Image = hotelData.LargePhotos.FirstOrDefault() ?? "",
+                        Operation = hotelData.Operation,
+                        Rating = hotelData.Rating
+                    },
+                    CheckIn = pars.checkin,
+                    CheckOut = pars.checkOut,
+                    Nights = nights,
+                    Rooms = GetDistinctRoomsPerRate(availRes.Data?.Rooms),//TODO: ti kanei afto?
+                    SelectedPeople = GetPartyInfo(Selectedrates)
+                };
+
+                if (!AvailabilityProcessor.HasSufficientAvailability(availRes, Selectedrates))
+                {
+                    _logger.LogWarning("GetCheckoutInfo: Not enough rooms available for HotelId: {HotelId}", pars.hotelId);
+                    res.ErrorCode = "Error";
+                    res.ErrorMessage = "Not enough rooms";
+                    res.Rooms = new List<CheckoutRoomInfo>();
+                    return res;
+                }
+
+                //TODO: recheck this validation
+                //i might need to add something with sums. cause when i have the same room for dif party and remaing is 1 i need error
+                foreach (var selectedRate in Selectedrates)
+                {
+                    bool found = false;
+                    foreach (var room in availRes.Data?.Rooms ?? [])
+                    {
+                        foreach (var rate in room.Rates)
                         {
-                            if (res.Rooms.FirstOrDefault(r => r.RateId.Equals(selectedRate.rateId) && rate.SearchParty.party?.Equals(selectedRate.searchParty) == true) is CheckoutRoomInfo cri)
+                            if (selectedRate.roomId != null && selectedRate.rateId == null)
                             {
-                                cri.SelectedQuantity = selectedRate.count;
+                                selectedRate.rateId = selectedRate.roomId;
                             }
-                            else
-                                throw new InvalidOperationException("Rates don't exist any more");
 
-                            found = true;
+                            if (rate.Id.Equals(selectedRate.rateId) && rate.SearchParty.party?.Equals(selectedRate.searchParty) == true && rate.RemainingRooms >= selectedRate.count)
+                            {
+                                if (res.Rooms.FirstOrDefault(r => r.RateId.Equals(selectedRate.rateId) && rate.SearchParty.party?.Equals(selectedRate.searchParty) == true) is CheckoutRoomInfo cri)
+                                {
+                                    cri.SelectedQuantity = selectedRate.count;
+                                }
+                                else
+                                {
+                                    _logger.LogWarning("GetCheckoutInfo: Rates don't exist anymore for RateId: {RateId}", selectedRate.rateId);
+                                    throw new InvalidOperationException("Rates don't exist any more");
+                                }
+
+                                found = true;
+                                break;
+                            }
+                        }
+                        if (found)
+                        {
                             break;
                         }
                     }
-                    if (found)
+                    if (!found)
                     {
-                        break;
+                        _logger.LogWarning("GetCheckoutInfo: Rate not found - RateId: {RateId}", selectedRate.rateId);
+                        throw new InvalidOperationException("Rates don't exist any more");
                     }
                 }
-                if (!found)
-                {
-                    throw new InvalidOperationException("Rates don't exist any more");
-                }
-            }
             
-            CheckoutProcessor.CalculatePayments(res);
-            res.TotalPrice = res.Rooms.Sum(r => (r.TotalPrice * r.SelectedQuantity));
+                CheckoutProcessor.CalculatePayments(res);
+                res.TotalPrice = res.Rooms.Sum(r => (r.TotalPrice * r.SelectedQuantity));
 
-            return res;
+                stopwatch.Stop();
+                _logger.LogInformation("GetCheckoutInfo completed for HotelId: {HotelId}, TotalPrice: {TotalPrice}, RoomsCount: {RoomsCount} in {ElapsedMs}ms", 
+                    pars.hotelId, res.TotalPrice, res.Rooms.Count, stopwatch.ElapsedMilliseconds);
+
+                return res;
+            }
+            catch (Exception ex) when (ex is not InvalidCastException && ex is not ArgumentException && ex is not InvalidOperationException)
+            {
+                stopwatch.Stop();
+                _logger.LogError(ex, "GetCheckoutInfo failed for HotelId: {HotelId} after {ElapsedMs}ms", 
+                    pars.hotelId, stopwatch.ElapsedMilliseconds);
+                throw;
+            }
         }
-
 
         private static string GetPartyInfo(List<SelectedRate> selectedRates)
         {

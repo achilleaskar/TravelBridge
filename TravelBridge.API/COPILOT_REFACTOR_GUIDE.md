@@ -1,64 +1,139 @@
-I checked **`TravelBridge-3rdTryFromScratch2.zip`** and for **Step 2 (Geo extraction)** what Copilot did is **functionally correct** and matches the direction we want.
+Yep — continuing, not restarting. I unpacked **TravelBridge-PROD.zip** and **TravelBridge-upgraded_2.zip** and compared the *actual code* for the endpoints you can’t easily test (reservation/payment + hotel).
 
-### What looks correct (based on your code)
-
-* ✅ New projects **`TravelBridge.Geo.Mapbox`** and **`TravelBridge.Geo.HereMaps`** actually contain the moved code:
-
-  * `MapBoxApiOptions`, `MapBoxAutoCompleteResponse`, `MapBoxService`, `ServiceCollectionExtensions`
-  * `HereMapsApiOptions`, `HereMapsAutoCompleteResponse`, `HereMapsService`, `ServiceCollectionExtensions`
-* ✅ `Program.cs` now uses:
-
-  * `builder.Services.AddHereMaps(builder.Configuration);`
-  * `builder.Services.AddMapBox(builder.Configuration);`
-    and removed the old inline registrations for those two.
-* ✅ API code was updated to reference the new namespaces:
-
-  * `MappingExtensions.MapToAutoCompleteLocations(this List<Feature> features)` now uses `TravelBridge.Geo.Mapbox.Feature`
-  * `SearchPluginEndpoints` injects `MapBoxService` from the new project and still maps to your Contracts response.
-* ✅ Config section names match your `appsettings.json`:
-
-  * `MapBoxApi` and `HereMapsApi` are used by the extension methods and exist in the file.
-
-So yes: **Step 2 is done properly.**
+Here are the **remaining “logic/contract drift” issues** I can clearly see (these *will* change runtime behavior / JSON compared to PROD), plus exactly what to change.
 
 ---
 
-## Small improvements (not required now, but I’d do soon)
+## 1) 🚨 `/api/hotel/hotelInfo` response shape changed (breaking)
 
-### 1) Avoid leaking Mapbox DTOs into API (optional, but cleaner)
+**PROD (`TravelBridge-PROD.zip`)**
+`GET /api/hotel/hotelInfo` returns a wrapper:
 
-Right now API depends on `TravelBridge.Geo.Mapbox.Feature` because `MapBoxService.GetLocationsAsync()` returns `List<Feature>`.
+```json
+{ "error_code": "...", "error_msg": "...", "data": { ... } }
+```
 
-**Cleaner end-state:** `MapBoxService` returns `IEnumerable<AutoCompleteLocation>` directly (Contracts model) OR implements an `IGeoProvider` port.
-That would let you delete the `Feature` mapping in API entirely.
+**Upgraded_2**
+In `TravelBridge.API/Endpoints/HotelEndpoint.cs`, `GetHotelInfo` now returns **HotelData directly** (no wrapper), and uses `res.Data!` which can turn an API error into a **500**.
 
-Not urgent — just prevents “provider DTO creeping back in”.
+✅ **Fix (match PROD 1:1):**
 
-### 2) Make Mapbox/Here wire DTOs `internal` (later)
+* Re-introduce `HotelInfoResponse` (in Contracts or API like prod had it)
+* Return the wrapper again, and map `Data = res.Data?.ToContracts()` (no `!`)
 
-Right now `Feature`, `Properties`, etc. are `public`. If you keep them public, they can leak again.
-Once you stop returning `Feature` to API, you can make the DTOs `internal` safely.
+**File to change:** `TravelBridge.API/Endpoints/HotelEndpoint.cs`
 
-### 3) Minor: `lang` parameter isn’t used in MapBoxService
+**Target pattern:**
 
-`GetLocationsAsync(string? param, string? lang)` always uses `language=el`. That’s existing behavior; just noting.
+```csharp
+private async Task<HotelInfoResponse> GetHotelInfo(string hotelId)
+{
+    if (string.IsNullOrWhiteSpace(hotelId))
+        throw new ArgumentException("Invalid hotelId");
+
+    var res = await webHotelierPropertiesService.GetHotelInfoAsync(hotelId);
+
+    return new HotelInfoResponse
+    {
+        ErrorCode = res.ErrorCode,
+        ErrorMsg  = res.ErrorMessage,     // keep JSON name error_msg in DTO
+        Data      = res.Data?.ToContracts()
+    };
+}
+```
 
 ---
 
-## Next step I recommend (Step 3)
+## 2) 🚨 `paymentSucceed` response JSON changed: `successfullPayment` → `successfulPayment`
 
-Now that Geo is separated, the next high-value step is:
+**PROD** response contains:
 
-✅ **Create a real WebHotelier client inside `TravelBridge.Providers.WebHotelier`** and refactor `WebHotelierPropertiesService` (still in API) to use it.
+```json
+"successfullPayment": true
+```
 
-That will finally move *HTTP + wire* logic into the provider project, while API keeps DB/email/orchestration for now.
+**Upgraded_2** uses:
 
-If you want, I’ll give you the exact “micro-steps” for Step 3 (files to add, what methods to extract first, and how to keep build green).
+* `TravelBridge.Contracts/Contracts/Responses/SuccessfulPaymentResponse.cs`
+* property name is `SuccessfulPayment` → JSON becomes `"successfulPayment"` (different spelling)
+
+That’s a silent breaking change for the WordPress plugin if it expects the old field name.
+
+✅ **Fix options (pick one):**
+
+### Option A (best: no behavior change)
+
+Keep the nice C# name, force the **old JSON name**:
+
+```csharp
+[JsonPropertyName("successfullPayment")]
+public bool SuccessfulPayment { get; set; }
+```
+
+### Option B
+
+Rename the property back to `SuccessfullPayment` like PROD had.
+
+**File to change:** `TravelBridge.Contracts/Contracts/Responses/SuccessfulPaymentResponse.cs`
 
 ---
 
-### One important note (security)
+## 3) ⚠️ Partial payment null-safety regression in `ConfirmPayment`
 
-Your `appsettings.json` in the zip contains real API keys/passwords (Viva, Mapbox, SMTP, WebHotelier). You should rotate them and move secrets to environment variables / user-secrets and **remove them from git history** if this repo is public.
+In upgraded_2, `ConfirmPayment` calls:
 
-If you paste your current `WebHotelierPropertiesService` ctor + the parts that create HTTP requests, I’ll show you exactly how to carve out `WebHotelierClient` with minimal changes.
+```csharp
+await viva.ValidatePayment(pay.OrderCode, pay.Tid, reservation.TotalAmount, reservation.PartialPayment.prepayAmount);
+```
+
+If `PartialPayment` is null in DB for “full payment” reservations (EF won’t enforce non-null just because the property is non-nullable), this becomes a **NullReferenceException**.
+
+✅ **Fix (match old behavior):**
+
+```csharp
+await viva.ValidatePayment(
+    pay.OrderCode,
+    pay.Tid,
+    reservation.TotalAmount,
+    reservation.PartialPayment?.prepayAmount
+);
+```
+
+**File to change:** `TravelBridge.API/Endpoints/ReservationEndpoints.cs`
+
+---
+
+## 4) ⚠️ Booking creation now depends on `TestCard` config (can break MYC / partial-pay bookings)
+
+You moved hardcoded test card fields into `TestCardOptions`:
+
+* `TravelBridge.API/Models/Apis/TestCardOptions.cs`
+* bound in `Program.cs` from `"TestCard"` section
+* used in `WebHotelierPropertiesService.CreateBooking(...)`
+
+If your PROD config doesn’t include `TestCard:*`, then **MYC/partial-payment bookings** will send empty card fields and WebHotelier may reject the booking.
+
+✅ Fix: ensure PROD has these settings (or set defaults equal to the old hardcoded values).
+
+**Add to appsettings / environment:**
+
+```json
+"TestCard": {
+  "CardNumber": "4111111111111111",
+  "CardType": "visa",
+  "CardName": "Jhon Doe",
+  "CardMonth": "12",
+  "CardYear": "2027",
+  "CardCVV": "737"
+}
+```
+
+---
+
+## What I’d do next (so you don’t get surprised in prod)
+
+1. Fix **#1 and #2** first (these are definite contract breaks).
+2. Fix **#3** (cheap, removes a potential 500).
+3. Confirm PROD config includes **#4** if you use the MYC/partial payment path.
+
+If you upload your **latest “fixed most stuff” zip** (the one after upgraded_2), I can re-run the same comparison and tell you whether these are already fixed and what’s still drifting.

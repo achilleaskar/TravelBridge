@@ -17,10 +17,12 @@ namespace TravelBridge.API.Endpoints
     public class HotelEndpoint
     {
         private readonly WebHotelierPropertiesService webHotelierPropertiesService;
+        private readonly ILogger<HotelEndpoint> _logger;
 
-        public HotelEndpoint(WebHotelierPropertiesService webHotelierPropertiesService)
+        public HotelEndpoint(WebHotelierPropertiesService webHotelierPropertiesService, ILogger<HotelEndpoint> logger)
         {
             this.webHotelierPropertiesService = webHotelierPropertiesService;
+            _logger = logger;
         }
 
         public void MapEndpoints(IEndpointRouteBuilder app)
@@ -56,115 +58,170 @@ namespace TravelBridge.API.Endpoints
                .WithOpenApi(CustomizeGetHotelAvailabilityOperation);
         }
 
-        private async Task<HotelData> GetHotelInfo(string hotelId)
+        private async Task<HotelInfoResponse> GetHotelInfo(string hotelId)
         {
-            if (string.IsNullOrWhiteSpace(hotelId))
-            {
-                throw new ArgumentException("Hotel ID cannot be null or empty.", nameof(hotelId));
-            }
+            _logger.LogInformation("GetHotelInfo started for HotelId: {HotelId}", hotelId);
+            var stopwatch = System.Diagnostics.Stopwatch.StartNew();
 
-            var hotelInfo = hotelId.Split('-');
-            if (hotelInfo.Length != 2)
+            try
             {
-                throw new ArgumentException("Invalid hotelId format. Use bbox-lat-lon.");
-            }
+                if (string.IsNullOrWhiteSpace(hotelId))
+                {
+                    _logger.LogWarning("GetHotelInfo failed: Hotel ID is null or empty");
+                    throw new ArgumentException("Hotel ID cannot be null or empty.", nameof(hotelId));
+                }
 
-            var res = await webHotelierPropertiesService.GetHotelInfo(hotelInfo[1]);
-            var contractsData = res.Data!.ToContracts();
-            contractsData.Provider = Provider.WebHotelier;
-            return contractsData;
+                var hotelInfo = hotelId.Split('-');
+                if (hotelInfo.Length != 2)
+                {
+                    _logger.LogWarning("GetHotelInfo failed: Invalid hotelId format {HotelId}", hotelId);
+                    throw new ArgumentException("Invalid hotelId format. Use bbox-lat-lon.");
+                }
+
+                _logger.LogDebug("Fetching hotel info from WebHotelier for property: {PropertyId}", hotelInfo[1]);
+                var res = await webHotelierPropertiesService.GetHotelInfo(hotelInfo[1]);
+            
+                var contractsData = res.Data?.ToContracts();
+                if (contractsData != null)
+                {
+                    contractsData.Provider = Provider.WebHotelier;
+                }
+
+                stopwatch.Stop();
+                _logger.LogInformation("GetHotelInfo completed for HotelId: {HotelId} in {ElapsedMs}ms, HasData: {HasData}", 
+                    hotelId, stopwatch.ElapsedMilliseconds, contractsData != null);
+
+                return new HotelInfoResponse
+                {
+                    ErrorCode = res.ErrorCode,
+                    ErrorMsg = res.ErrorMessage,
+                    Data = contractsData
+                };
+            }
+            catch (Exception ex) when (ex is not ArgumentException)
+            {
+                stopwatch.Stop();
+                _logger.LogError(ex, "GetHotelInfo failed for HotelId: {HotelId} after {ElapsedMs}ms", 
+                    hotelId, stopwatch.ElapsedMilliseconds);
+                throw;
+            }
         }
 
         public async Task<HotelInfoFullResponse> GetHotelFullInfo(string checkin, string checkOut, int? adults, string? children, int? rooms, string? party, string hotelId, ReservationsRepository reservationsRepository)
         {
-            #region Params Validation
+            _logger.LogInformation("GetHotelFullInfo started for HotelId: {HotelId}, CheckIn: {CheckIn}, CheckOut: {CheckOut}, Adults: {Adults}, Children: {Children}, Rooms: {Rooms}", 
+                hotelId, checkin, checkOut, adults, children, rooms);
+            var stopwatch = System.Diagnostics.Stopwatch.StartNew();
 
-            if (string.IsNullOrWhiteSpace(hotelId))
+            try
             {
-                throw new ArgumentException("Hotel ID cannot be null or empty.", nameof(hotelId));
-            }
+                #region Params Validation
 
-            var hotelInfo = hotelId.Split('-');
-            if (hotelInfo.Length != 2)
-            {
-                throw new ArgumentException("Invalid hotelId format. Use bbox-lat-lon.");
-            }
-
-            if (!DateTime.TryParseExact(checkin, "dd/MM/yyyy", CultureInfo.InvariantCulture, DateTimeStyles.None, out var parsedCheckin))
-            {
-                throw new InvalidCastException("Invalid checkin date format. Use dd/MM/yyyy.");
-            }
-
-            if (!DateTime.TryParseExact(checkOut, "dd/MM/yyyy", CultureInfo.InvariantCulture, DateTimeStyles.None, out var parsedCheckOut))
-            {
-                throw new InvalidCastException("Invalid checkout date format. Use dd/MM/yyyy.");
-            }
-
-            if (string.IsNullOrWhiteSpace(party))
-            {
-                if (rooms != 1)
+                if (string.IsNullOrWhiteSpace(hotelId))
                 {
-                    throw new InvalidOperationException("when room greated than 1 party must be used");
+                    _logger.LogWarning("GetHotelFullInfo failed: Hotel ID is null or empty");
+                    throw new ArgumentException("Hotel ID cannot be null or empty.", nameof(hotelId));
                 }
 
-                if (adults == null || adults < 1)
+                var hotelInfo = hotelId.Split('-');
+                if (hotelInfo.Length != 2)
                 {
-                    throw new ArgumentException("There must be at least one adult in the room.");
+                    _logger.LogWarning("GetHotelFullInfo failed: Invalid hotelId format {HotelId}", hotelId);
+                    throw new ArgumentException("Invalid hotelId format. Use bbox-lat-lon.");
                 }
 
-                party = General.CreateParty(adults.Value, children);
+                if (!DateTime.TryParseExact(checkin, "dd/MM/yyyy", CultureInfo.InvariantCulture, DateTimeStyles.None, out var parsedCheckin))
+                {
+                    _logger.LogWarning("GetHotelFullInfo failed: Invalid checkin date format {CheckIn}", checkin);
+                    throw new InvalidCastException("Invalid checkin date format. Use dd/MM/yyyy.");
+                }
+
+                if (!DateTime.TryParseExact(checkOut, "dd/MM/yyyy", CultureInfo.InvariantCulture, DateTimeStyles.None, out var parsedCheckOut))
+                {
+                    _logger.LogWarning("GetHotelFullInfo failed: Invalid checkout date format {CheckOut}", checkOut);
+                    throw new InvalidCastException("Invalid checkout date format. Use dd/MM/yyyy.");
+                }
+
+                if (string.IsNullOrWhiteSpace(party))
+                {
+                    if (rooms != 1)
+                    {
+                        _logger.LogWarning("GetHotelFullInfo failed: Party required when rooms > 1, Rooms: {Rooms}", rooms);
+                        throw new InvalidOperationException("when room greated than 1 party must be used");
+                    }
+
+                    if (adults == null || adults < 1)
+                    {
+                        _logger.LogWarning("GetHotelFullInfo failed: At least one adult required, Adults: {Adults}", adults);
+                        throw new ArgumentException("There must be at least one adult in the room.");
+                    }
+
+                    party = General.CreateParty(adults.Value, children);
+                }
+                else
+                {
+                    party = General.BuildMultiRoomJson(party);
+                }
+
+                #endregion Params Validation
+
+                _logger.LogDebug("Fetching availability and hotel info from WebHotelier for HotelId: {HotelId}, Party: {Party}", hotelId, party);
+
+                WHSingleAvailabilityRequest whReq = new()
+                {
+                    PropertyId = hotelInfo[1],
+                    CheckIn = parsedCheckin.ToString("yyyy-MM-dd"),
+                    CheckOut = parsedCheckOut.ToString("yyyy-MM-dd"),
+                    Party = party
+                };
+
+                var availTask = webHotelierPropertiesService.GetHotelAvailabilityAsync(whReq, parsedCheckin, reservationsRepository);
+                var hotelTask = webHotelierPropertiesService.GetHotelInfo(hotelInfo[1]);
+                await Task.WhenAll(availTask, hotelTask);
+
+                SingleAvailabilityResponse? availRes = await availTask;
+                WHHotelInfoResponse? hotelRes = await hotelTask;
+
+                if (availRes.Data != null)
+                {
+                    availRes.Data.Provider = Provider.WebHotelier;
+                }
+
+                var hotelData = hotelRes.Data!.ToContracts();
+                hotelData.Provider = Provider.WebHotelier;
+
+                int nights = (parsedCheckOut - parsedCheckin).Days;
+                decimal salePrice = 0;
+
+                var res = new HotelInfoFullResponse
+                {
+                    ErrorCode = hotelRes.ErrorCode,
+                    ErrorMsg = hotelRes.ErrorMessage,
+                    HotelData = hotelData,
+                    Rooms = availRes.Data?.Rooms ?? [],
+                    Alternatives = availRes.Data?.Alternatives ?? []
+                };
+                res.HotelData.CustomInfo = GetHotelBasicInfo(availRes, hotelData);
+                res.HotelData.MinPrice = Math.Floor(availRes.Data?.GetMinPrice(out salePrice) ?? 0);
+                res.HotelData.SalePrice = salePrice;
+                res.HotelData.MinPricePerNight = Math.Floor(res.HotelData.MinPrice / nights);
+                res.HotelData.MappedTypes = res.HotelData.Type.MapToType();
+                res.HotelData.Boards = res.Rooms.SelectMany(a => a.Rates).MapBoardTypes();
+                res.HotelData.SetBoardText();
+
+                stopwatch.Stop();
+                _logger.LogInformation("GetHotelFullInfo completed for HotelId: {HotelId} in {ElapsedMs}ms, RoomsCount: {RoomsCount}, MinPrice: {MinPrice}", 
+                    hotelId, stopwatch.ElapsedMilliseconds, res.Rooms.Count(), res.HotelData.MinPrice);
+
+                return res;
             }
-            else
+            catch (Exception ex) when (ex is not ArgumentException && ex is not InvalidCastException && ex is not InvalidOperationException)
             {
-                party = General.BuildMultiRoomJson(party);
+                stopwatch.Stop();
+                _logger.LogError(ex, "GetHotelFullInfo failed for HotelId: {HotelId} after {ElapsedMs}ms", 
+                    hotelId, stopwatch.ElapsedMilliseconds);
+                throw;
             }
-
-            #endregion Params Validation
-
-            WHSingleAvailabilityRequest whReq = new()
-            {
-                PropertyId = hotelInfo[1],
-                CheckIn = parsedCheckin.ToString("yyyy-MM-dd"),
-                CheckOut = parsedCheckOut.ToString("yyyy-MM-dd"),
-                Party = party
-            };
-
-            var availTask = webHotelierPropertiesService.GetHotelAvailabilityAsync(whReq, parsedCheckin, reservationsRepository);
-            var hotelTask = webHotelierPropertiesService.GetHotelInfo(hotelInfo[1]);
-            await Task.WhenAll(availTask, hotelTask);
-
-            SingleAvailabilityResponse? availRes = await availTask;
-            WHHotelInfoResponse? hotelRes = await hotelTask;
-
-            if (availRes.Data != null)
-            {
-                availRes.Data.Provider = Provider.WebHotelier;
-            }
-
-            var hotelData = hotelRes.Data!.ToContracts();
-            hotelData.Provider = Provider.WebHotelier;
-
-            int nights = (parsedCheckOut - parsedCheckin).Days;
-
-            decimal salePrice = 0;
-
-            var res = new HotelInfoFullResponse
-            {
-                ErrorCode = hotelRes.ErrorCode,
-                ErrorMsg = hotelRes.ErrorMessage,
-                HotelData = hotelData,
-                Rooms = availRes.Data?.Rooms ?? [],
-                Alternatives = availRes.Data?.Alternatives ?? []
-            };
-            res.HotelData.CustomInfo = GetHotelBasicInfo(availRes, hotelData);
-            res.HotelData.MinPrice = Math.Floor(availRes.Data?.GetMinPrice(out salePrice) ?? 0);
-            res.HotelData.SalePrice = salePrice;
-            res.HotelData.MinPricePerNight = Math.Floor(res.HotelData.MinPrice / nights);
-            res.HotelData.MappedTypes = res.HotelData.Type.MapToType();
-            res.HotelData.Boards = res.Rooms.SelectMany(a => a.Rates).MapBoardTypes();
-            res.HotelData.SetBoardText();
-
-            return res;
         }
 
         private string GetHotelBasicInfo(SingleAvailabilityResponse availRes, HotelData hotelData)
@@ -184,92 +241,137 @@ namespace TravelBridge.API.Endpoints
 
         private async Task<RoomInfoResponse> GetRoomInfo(string hotelId, string roomId)
         {
-            if (string.IsNullOrWhiteSpace(hotelId))
-            {
-                throw new ArgumentException("Hotel ID cannot be null or empty.", nameof(hotelId));
-            }
+            _logger.LogInformation("GetRoomInfo started for HotelId: {HotelId}, RoomId: {RoomId}", hotelId, roomId);
+            var stopwatch = System.Diagnostics.Stopwatch.StartNew();
 
-            if (string.IsNullOrWhiteSpace(roomId))
+            try
             {
-                throw new ArgumentException("Room ID cannot be null or empty.", nameof(roomId));
-            }
+                if (string.IsNullOrWhiteSpace(hotelId))
+                {
+                    _logger.LogWarning("GetRoomInfo failed: Hotel ID is null or empty");
+                    throw new ArgumentException("Hotel ID cannot be null or empty.", nameof(hotelId));
+                }
 
-            var hotelInfo = hotelId.Split('-');
-            if (hotelInfo.Length != 2)
-            {
-                throw new ArgumentException("Invalid hotelId format. Use bbox-lat-lon.");
-            }
+                if (string.IsNullOrWhiteSpace(roomId))
+                {
+                    _logger.LogWarning("GetRoomInfo failed: Room ID is null or empty");
+                    throw new ArgumentException("Room ID cannot be null or empty.", nameof(roomId));
+                }
 
-            var res = await webHotelierPropertiesService.GetRoomInfo(hotelInfo[1], roomId);
-            return new RoomInfoResponse
+                var hotelInfo = hotelId.Split('-');
+                if (hotelInfo.Length != 2)
+                {
+                    _logger.LogWarning("GetRoomInfo failed: Invalid hotelId format {HotelId}", hotelId);
+                    throw new ArgumentException("Invalid hotelId format. Use bbox-lat-lon.");
+                }
+
+                _logger.LogDebug("Fetching room info from WebHotelier for PropertyId: {PropertyId}, RoomId: {RoomId}", hotelInfo[1], roomId);
+                var res = await webHotelierPropertiesService.GetRoomInfo(hotelInfo[1], roomId);
+
+                stopwatch.Stop();
+                _logger.LogInformation("GetRoomInfo completed for HotelId: {HotelId}, RoomId: {RoomId} in {ElapsedMs}ms, HasData: {HasData}", 
+                    hotelId, roomId, stopwatch.ElapsedMilliseconds, res.Data != null);
+
+                return new RoomInfoResponse
+                {
+                    HttpCode = res.HttpCode,
+                    ErrorCode = res.ErrorCode,
+                    ErrorMessage = res.ErrorMessage,
+                    Data = res.Data?.ToContracts()
+                };
+            }
+            catch (Exception ex) when (ex is not ArgumentException)
             {
-                HttpCode = res.HttpCode,
-                ErrorCode = res.ErrorCode,
-                ErrorMessage = res.ErrorMessage,
-                Data = res.Data?.ToContracts()
-            };
+                stopwatch.Stop();
+                _logger.LogError(ex, "GetRoomInfo failed for HotelId: {HotelId}, RoomId: {RoomId} after {ElapsedMs}ms", 
+                    hotelId, roomId, stopwatch.ElapsedMilliseconds);
+                throw;
+            }
         }
 
         private async Task<SingleAvailabilityResponse> GetHotelAvailability(string checkin, string checkOut, int? adults, string? children, int? rooms, string? party, string hotelId, ReservationsRepository reservationsRepository)
         {
-            #region Params Validation
+            _logger.LogInformation("GetHotelAvailability started for HotelId: {HotelId}, CheckIn: {CheckIn}, CheckOut: {CheckOut}, Adults: {Adults}, Children: {Children}, Rooms: {Rooms}", 
+                hotelId, checkin, checkOut, adults, children, rooms);
+            var stopwatch = System.Diagnostics.Stopwatch.StartNew();
 
-            if (!DateTime.TryParseExact(checkin, "dd/MM/yyyy", CultureInfo.InvariantCulture, DateTimeStyles.None, out var parsedCheckin))
+            try
             {
-                throw new InvalidCastException("Invalid checkin date format. Use dd/MM/yyyy.");
-            }
+                #region Params Validation
 
-            if (!DateTime.TryParseExact(checkOut, "dd/MM/yyyy", CultureInfo.InvariantCulture, DateTimeStyles.None, out var parsedCheckOut))
-            {
-                throw new InvalidCastException("Invalid checkout date format. Use dd/MM/yyyy.");
-            }
-
-            var hotelInfo = hotelId.Split('-');
-            if (hotelInfo.Length != 2)
-            {
-                throw new ArgumentException("Invalid hotelId format. Use bbox-lat-lon.");
-            }
-
-            if (string.IsNullOrWhiteSpace(party))
-            {
-                if (rooms != 1)
+                if (!DateTime.TryParseExact(checkin, "dd/MM/yyyy", CultureInfo.InvariantCulture, DateTimeStyles.None, out var parsedCheckin))
                 {
-                    throw new InvalidOperationException("when room greated than 1 party must be used");
+                    _logger.LogWarning("GetHotelAvailability failed: Invalid checkin date format {CheckIn}", checkin);
+                    throw new InvalidCastException("Invalid checkin date format. Use dd/MM/yyyy.");
                 }
 
-                if (adults == null || adults < 1)
+                if (!DateTime.TryParseExact(checkOut, "dd/MM/yyyy", CultureInfo.InvariantCulture, DateTimeStyles.None, out var parsedCheckOut))
                 {
-                    throw new ArgumentException("There must be at least one adult in the room.");
+                    _logger.LogWarning("GetHotelAvailability failed: Invalid checkout date format {CheckOut}", checkOut);
+                    throw new InvalidCastException("Invalid checkout date format. Use dd/MM/yyyy.");
                 }
 
-                party = General.CreateParty(adults.Value, children);
+                var hotelInfo = hotelId.Split('-');
+                if (hotelInfo.Length != 2)
+                {
+                    _logger.LogWarning("GetHotelAvailability failed: Invalid hotelId format {HotelId}", hotelId);
+                    throw new ArgumentException("Invalid hotelId format. Use bbox-lat-lon.");
+                }
+
+                if (string.IsNullOrWhiteSpace(party))
+                {
+                    if (rooms != 1)
+                    {
+                        _logger.LogWarning("GetHotelAvailability failed: Party required when rooms > 1, Rooms: {Rooms}", rooms);
+                        throw new InvalidOperationException("when room greated than 1 party must be used");
+                    }
+
+                    if (adults == null || adults < 1)
+                    {
+                        _logger.LogWarning("GetHotelAvailability failed: At least one adult required, Adults: {Adults}", adults);
+                        throw new ArgumentException("There must be at least one adult in the room.");
+                    }
+
+                    party = General.CreateParty(adults.Value, children);
+                }
+                else
+                {
+                    party = General.BuildMultiRoomJson(party);
+                }
+
+                #endregion Params Validation
+
+                _logger.LogDebug("Fetching availability from WebHotelier for HotelId: {HotelId}, Party: {Party}", hotelId, party);
+
+                WHSingleAvailabilityRequest whReq = new()
+                {
+                    PropertyId = hotelInfo[1],
+                    CheckIn = parsedCheckin.ToString("yyyy-MM-dd"),
+                    CheckOut = parsedCheckOut.ToString("yyyy-MM-dd"),
+                    Party = party
+                };
+
+                var res = await webHotelierPropertiesService.GetHotelAvailabilityAsync(whReq, parsedCheckin, reservationsRepository);
+
+                if (res.Data != null)
+                {
+                    res.Data.Provider = Provider.WebHotelier;
+                }
+
+                stopwatch.Stop();
+                _logger.LogInformation("GetHotelAvailability completed for HotelId: {HotelId} in {ElapsedMs}ms, RoomsCount: {RoomsCount}", 
+                    hotelId, stopwatch.ElapsedMilliseconds, res.Data?.Rooms?.Count() ?? 0);
+
+                return res;
             }
-            else
+            catch (Exception ex) when (ex is not ArgumentException && ex is not InvalidCastException && ex is not InvalidOperationException)
             {
-                party = General.BuildMultiRoomJson(party);
+                stopwatch.Stop();
+                _logger.LogError(ex, "GetHotelAvailability failed for HotelId: {HotelId} after {ElapsedMs}ms", 
+                    hotelId, stopwatch.ElapsedMilliseconds);
+                throw;
             }
-
-            #endregion Params Validation
-
-            WHSingleAvailabilityRequest whReq = new()
-            {
-                PropertyId = hotelInfo[1],
-                CheckIn = parsedCheckin.ToString("yyyy-MM-dd"),
-                CheckOut = parsedCheckOut.ToString("yyyy-MM-dd"),
-                Party = party
-            };
-
-            var res = await webHotelierPropertiesService.GetHotelAvailabilityAsync(whReq, parsedCheckin, reservationsRepository);
-
-            if (res.Data != null)
-            {
-                res.Data.Provider = Provider.WebHotelier;
-            }
-
-            return res;
         }
-
-        // Method for multiple rooms
 
         private static OpenApiOperation CustomizeGetHotelInfoOperation(OpenApiOperation operation)
         {
