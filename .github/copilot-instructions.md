@@ -7,6 +7,7 @@ You are helping with a .NET (C#) ASP.NET Core API that uses a MySQL database.
 - Prefer **minimal, surgical diffs**. Do not refactor unrelated code.
 - Do **not** add new NuGet packages, change TFM/SDK/LangVersion, or restructure projects unless explicitly asked.
 - Never claim you “read the whole project”. Use @workspace for structure, but request specific context as needed.
+- never delete existing comments in code if they are not invalid anymore. if they need update then update them. 
 
 ## Plan-first for “big” work
 If the request is likely big (more than ~3 files, new endpoints/public APIs, auth, DB/schema changes, cross-project):
