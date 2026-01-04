@@ -44,7 +44,7 @@ So from a “don’t change runtime behavior” point of view: **the new middlew
 
      ```csharp
      app.Lifetime.ApplicationStopped.Register(Log.CloseAndFlush);
-     ```
+```
    * Otherwise, on fast restarts you can lose tail logs.
 
 ## 2) Tests: did they break anything?
