@@ -18,29 +18,29 @@ public class HotelRate : BaseRate
     #region Properties
 
     [JsonPropertyName("cancellation_fees")]
-    public IEnumerable<CancellationFee> CancellationFees { get; set; } = [];
+    public IEnumerable<CancellationFee>? CancellationFees { get; set; }
 
     [JsonPropertyName("payments")]
-    public List<PaymentWH> Payments { get; set; } = [];
+    public List<PaymentWH>? Payments { get; set; }
 
     [JsonPropertyName("id")]
     [JsonConverter(typeof(IntToStringJsonConverter))]
-    public string Id { get; set; } = string.Empty;
+    public string? Id { get; set; }
 
     [JsonPropertyName("pricing")]
-    public PricingInfo Pricing { get; set; } = new();
+    public PricingInfo? Pricing { get; set; }
 
     [JsonPropertyName("remaining")]
     public int? RemainingRooms { get; set; }
 
     [JsonPropertyName("retail")]
-    public PricingInfo Retail { get; set; } = new();
+    public PricingInfo? Retail { get; set; }
 
     [JsonPropertyName("status")]
-    public string Status { get; set; } = string.Empty;
+    public string? Status { get; set; }
 
     [JsonPropertyName("status_descr")]
-    public string StatusDescription { get; set; } = string.Empty;
+    public string? StatusDescription { get; set; }
 
     #endregion Properties
 

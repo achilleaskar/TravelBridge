@@ -191,4 +191,7 @@ using (var scope = app.Services.CreateScope())
 app.UseSwagger();
 app.UseSwaggerUI();
 
+// Ensure Serilog flushes on shutdown
+app.Lifetime.ApplicationStopped.Register(Log.CloseAndFlush);
+
 await app.RunAsync();

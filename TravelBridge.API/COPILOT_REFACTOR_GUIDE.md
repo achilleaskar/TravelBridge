@@ -1,139 +1,143 @@
-Yep — continuing, not restarting. I unpacked **TravelBridge-PROD.zip** and **TravelBridge-upgraded_2.zip** and compared the *actual code* for the endpoints you can’t easily test (reservation/payment + hotel).
+Yep — I can continue, and I **won’t** restart from scratch. I pulled your “PROD” zip and the latest “after” zip (`zip.zip`), and reviewed what changed with focus on **logs + tests**, and also **reservation/payment risk areas**.
 
-Here are the **remaining “logic/contract drift” issues** I can clearly see (these *will* change runtime behavior / JSON compared to PROD), plus exactly what to change.
+## 1) Logs: did they “destroy” anything?
 
----
+**No — the new logging is actually *safer* than PROD.**
 
-## 1) 🚨 `/api/hotel/hotelInfo` response shape changed (breaking)
+### What improved (important)
 
-**PROD (`TravelBridge-PROD.zip`)**
-`GET /api/hotel/hotelInfo` returns a wrapper:
+In PROD you had middleware that:
 
-```json
-{ "error_code": "...", "error_msg": "...", "data": { ... } }
-```
+* `EnableBuffering()` + **reads the whole request body**
+* swaps `context.Response.Body` to a MemoryStream to read **the whole response body**
 
-**Upgraded_2**
-In `TravelBridge.API/Endpoints/HotelEndpoint.cs`, `GetHotelInfo` now returns **HotelData directly** (no wrapper), and uses `res.Data!` which can turn an API error into a **500**.
+That can cause side effects with:
 
-✅ **Fix (match PROD 1:1):**
+* large payloads (memory pressure)
+* streaming responses
+* subtle bugs when something expects the original response stream
 
-* Re-introduce `HotelInfoResponse` (in Contracts or API like prod had it)
-* Return the wrapper again, and map `Data = res.Data?.ToContracts()` (no `!`)
+In your new version, the middleware logs only:
 
-**File to change:** `TravelBridge.API/Endpoints/HotelEndpoint.cs`
+* method/path/querystring
+* status code + elapsed ms
+* exceptions
 
-**Target pattern:**
+So from a “don’t change runtime behavior” point of view: **the new middleware is less invasive** and much less likely to break anything.
 
-```csharp
-private async Task<HotelInfoResponse> GetHotelInfo(string hotelId)
-{
-    if (string.IsNullOrWhiteSpace(hotelId))
-        throw new ArgumentException("Invalid hotelId");
+### The only real operational risks now
 
-    var res = await webHotelierPropertiesService.GetHotelInfoAsync(hotelId);
+1. **Disk usage / permissions**
 
-    return new HotelInfoResponse
-    {
-        ErrorCode = res.ErrorCode,
-        ErrorMsg  = res.ErrorMessage,     // keep JSON name error_msg in DTO
-        Data      = res.Data?.ToContracts()
-    };
-}
-```
+   * You now write to `logs/travelbridge-.log` with daily rolling + 30 retention.
+   * Make sure the service working directory can write there (systemd `WorkingDirectory` / permissions).
 
----
+2. **PII in logs**
 
-## 2) 🚨 `paymentSucceed` response JSON changed: `successfullPayment` → `successfulPayment`
+   * I saw logs that include customer email in the Viva payment flow (example: `pars.CustomerInfo?.Email` in `VivaService.GetPaymentCode`).
+   * That’s not a runtime-breaker, but it *is* a GDPR/security concern.
+   * Recommendation: log masked email (`a***@domain.com`) or omit.
 
-**PROD** response contains:
+3. **Serilog flush on shutdown**
 
-```json
-"successfullPayment": true
-```
+   * Add:
 
-**Upgraded_2** uses:
+     ```csharp
+     app.Lifetime.ApplicationStopped.Register(Log.CloseAndFlush);
+     ```
+   * Otherwise, on fast restarts you can lose tail logs.
 
-* `TravelBridge.Contracts/Contracts/Responses/SuccessfulPaymentResponse.cs`
-* property name is `SuccessfulPayment` → JSON becomes `"successfulPayment"` (different spelling)
+## 2) Tests: did they break anything?
 
-That’s a silent breaking change for the WordPress plugin if it expects the old field name.
+**No.** The test project is isolated and doesn’t affect runtime unless you publish it (you won’t).
 
-✅ **Fix options (pick one):**
+### What your tests do well
 
-### Option A (best: no behavior change)
+* The “endpoint comparison” tests are genuinely useful: they catch output drift fast.
+* They compare JSON **as a string** after normalization, which is exactly what you want for “no behavior changes”.
 
-Keep the nice C# name, force the **old JSON name**:
+### Small caution
 
-```csharp
-[JsonPropertyName("successfullPayment")]
-public bool SuccessfulPayment { get; set; }
-```
+Those integration tests call your **production** URL. Running them repeatedly can:
 
-### Option B
+* spam prod
+* trigger rate limits
+* fill logs
 
-Rename the property back to `SuccessfullPayment` like PROD had.
+If you keep them, I’d add an explicit opt-in like:
 
-**File to change:** `TravelBridge.Contracts/Contracts/Responses/SuccessfulPaymentResponse.cs`
+* require an env var `RUN_LIVE_TESTS=true`, otherwise `[Ignore]` them.
 
----
+## 3) Reservation + Payment endpoints: anything suspicious?
 
-## 3) ⚠️ Partial payment null-safety regression in `ConfirmPayment`
+You’re right that these are hardest to validate without a dev sandbox, so I did a static “behavior drift” scan.
 
-In upgraded_2, `ConfirmPayment` calls:
+### ✅ “Architecture-only” changes that are safe
 
-```csharp
-await viva.ValidatePayment(pay.OrderCode, pay.Tid, reservation.TotalAmount, reservation.PartialPayment.prepayAmount);
-```
+* `Task.WaitAll(...)` → `await Task.WhenAll(...)` in hotel full-info flow: safe (and better).
+* Viva `ValidatePayment(...)` signature changed but logic is the same (it still compares against total/prepay amounts).
 
-If `PartialPayment` is null in DB for “full payment” reservations (EF won’t enforce non-null just because the property is non-nullable), this becomes a **NullReferenceException**.
+### ⚠️ One **big** thing to watch: defaults causing JSON drift
 
-✅ **Fix (match old behavior):**
+In several **Contracts** models, you now have defaults like:
 
-```csharp
-await viva.ValidatePayment(
-    pay.OrderCode,
-    pay.Tid,
-    reservation.TotalAmount,
-    reservation.PartialPayment?.prepayAmount
-);
-```
+* `string Name { get; set; } = string.Empty;`
+* `List<T> X { get; set; } = [];`
 
-**File to change:** `TravelBridge.API/Endpoints/ReservationEndpoints.cs`
+This can silently change output from **`null` → ""** or **`null` → []** if mapping doesn’t set the value.
 
----
+This exact pattern explains your earlier diffs like:
 
-## 4) ⚠️ Booking creation now depends on `TestCard` config (can break MYC / partial-pay bookings)
+* `location.name: null` (PROD) vs `""` (local)
+* missing lists vs `[]`
 
-You moved hardcoded test card fields into `TestCardOptions`:
+If your goal is “**bit-for-bit same JSON** as PROD”, then in `TravelBridge.Contracts`:
 
-* `TravelBridge.API/Models/Apis/TestCardOptions.cs`
-* bound in `Program.cs` from `"TestCard"` section
-* used in `WebHotelierPropertiesService.CreateBooking(...)`
+* **Prefer nullable strings** without default initializers
+* Avoid initializing lists unless PROD *always* returns `[]`
 
-If your PROD config doesn’t include `TestCard:*`, then **MYC/partial-payment bookings** will send empty card fields and WebHotelier may reject the booking.
+Concrete example: `RoomInfo` currently defaults `Name/Description/Amenities/PhotosItems` — that can produce `""`/`[]` where PROD may output `null`.
 
-✅ Fix: ensure PROD has these settings (or set defaults equal to the old hardcoded values).
+## 4) One repo hygiene problem you should fix
 
-**Add to appsettings / environment:**
+Your “after” zip contains a **`TravelBridge-PROD/` folder inside the repo** (a full copy of the old solution + a `TravelBridge.zip`).
 
-```json
-"TestCard": {
-  "CardNumber": "4111111111111111",
-  "CardType": "visa",
-  "CardName": "Jhon Doe",
-  "CardMonth": "12",
-  "CardYear": "2027",
-  "CardCVV": "737"
-}
-```
+It probably won’t affect publishing, but it *will*:
+
+* confuse Copilot (it will read duplicate code + wrong “source of truth”)
+* bloat repo
+* risk accidentally referencing old files in future diffs
+
+**Recommendation:** delete `TravelBridge-PROD/` from the repo and keep PROD only as an external artifact.
+
+## 5) If you want the highest confidence on reservation/payment without a dev env
+
+Do this (no big refactor required):
+
+1. Add a configuration switch:
+
+   * `Payments:Provider = Viva | Fake`
+2. Implement `FakePaymentProvider` that:
+
+   * returns deterministic `OrderCode/Tid`
+   * validates always OK
+3. Your reservation endpoints can be tested end-to-end locally without hitting Viva.
+
+This keeps prod behavior identical while giving you a full regression harness.
 
 ---
 
-## What I’d do next (so you don’t get surprised in prod)
+## Answering your “git vs zip” question
 
-1. Fix **#1 and #2** first (these are definite contract breaks).
-2. Fix **#3** (cheap, removes a potential 500).
-3. Confirm PROD config includes **#4** if you use the MYC/partial payment path.
+**Git is easier** for tracking exactly what changed (especially when you want “logic unchanged”), because I can pinpoint diffs by commit.
+But zips are totally workable — I already compared PROD vs your latest zip.
 
-If you upload your **latest “fixed most stuff” zip** (the one after upgraded_2), I can re-run the same comparison and tell you whether these are already fixed and what’s still drifting.
+If you want, send me **the PROD commit hash** (or tag) that represents what’s deployed, and I’ll give you a short “logic drift checklist” specifically for:
+
+* `ConfirmPayment`
+* `PreparePayment`
+* `ApplyCoupon`
+* email sending + retries
+* reservation persistence
+
+…and I’ll tell you exactly where your “after” code is still at risk of deviating.

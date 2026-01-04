@@ -7,22 +7,22 @@ namespace TravelBridge.Contracts.Models.Hotels;
 public class RoomInfo
 {
     [JsonPropertyName("name")]
-    public string Name { get; set; } = string.Empty;
+    public string? Name { get; set; }
 
     [JsonPropertyName("description")]
-    public string Description { get; set; } = string.Empty;
+    public string? Description { get; set; }
 
     [JsonPropertyName("capacity")]
-    public RoomCapacity Capacity { get; set; } = new();
+    public RoomCapacity? Capacity { get; set; }
 
     [JsonPropertyName("amenities")]
-    public List<string> Amenities { get; set; } = [];
+    public List<string>? Amenities { get; set; }
 
     [JsonPropertyName("photos")]
-    public IEnumerable<PhotoInfo> PhotosItems { get; set; } = [];
+    public IEnumerable<PhotoInfo>? PhotosItems { get; set; }
 
-    public IEnumerable<string> LargePhotos { get; set; } = [];
-    public IEnumerable<string> MediumPhotos { get; set; } = [];
+    public IEnumerable<string>? LargePhotos { get; set; }
+    public IEnumerable<string>? MediumPhotos { get; set; }
 }
 
 /// <summary>
