@@ -12,6 +12,7 @@ using TravelBridge.API.Models.Apis;
 using TravelBridge.API.Models.DB;
 using TravelBridge.API.Repositories;
 using TravelBridge.API.Services;
+using TravelBridge.Providers.Abstractions;
 using TravelBridge.Providers.WebHotelier;
 using TravelBridge.Providers.WebHotelier.Models.Common;
 using TravelBridge.Providers.WebHotelier.Models.Hotel;
@@ -527,10 +528,17 @@ namespace TravelBridge.API.Models.WebHotelier
                     throw new InvalidDataException($"Customer info is required");
                 }
 
-                if (reservation.HotelCode == null)
+                if (string.IsNullOrWhiteSpace(reservation.HotelCode))
                 {
                     _logger.LogWarning("CreateBooking failed: Hotel code is required for ReservationId: {ReservationId}", reservation.Id);
                     throw new InvalidDataException($"Hotel code is required");
+                }
+
+                if (!CompositeId.TryParse(reservation.HotelCode, out var hotelCompositeId))
+                {
+                    _logger.LogWarning("CreateBooking failed: Invalid hotel code format for ReservationId: {ReservationId}, HotelCode: {HotelCode}", 
+                        reservation.Id, reservation.HotelCode);
+                    throw new InvalidDataException($"Invalid hotel code format: {reservation.HotelCode}");
                 }
 
                 foreach (var rate in reservation.Rates)
@@ -565,10 +573,9 @@ namespace TravelBridge.API.Models.WebHotelier
                         throw new InvalidOperationException($"Error updating reservation rate status");
                     }
 
-                    var hotelCode = reservation.HotelCode!.Split('-')[1];
-                    _logger.LogDebug("CreateBooking: Calling WebHotelier CreateBooking API for HotelCode: {HotelCode}", hotelCode);
+                    _logger.LogDebug("CreateBooking: Calling WebHotelier CreateBooking API for HotelCode: {HotelCode}", hotelCompositeId.Value);
 
-                    var res = await _whClient.CreateBookingAsync(hotelCode, parameters);
+                    var res = await _whClient.CreateBookingAsync(hotelCompositeId.Value, parameters);
                     
                     if (res == null)
                     {
