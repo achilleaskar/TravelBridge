@@ -89,6 +89,7 @@ builder.Services
 #region HttpClients
 
 // Register providers using extension methods
+// This also registers IHotelProvider implementations
 builder.Services.AddHereMaps(builder.Configuration);
 builder.Services.AddMapBox(builder.Configuration);
 builder.Services.AddWebHotelier(builder.Configuration);
@@ -107,7 +108,15 @@ builder.Services.AddHttpClient("VivaApi", (sp, client) =>
 });
 
 #endregion HttpClients
+
+#region Services
+
 builder.Services.AddSingleton<SmtpEmailSender, SmtpEmailSender>();
+
+// Hotel provider resolver - resolves IHotelProvider by AvailabilitySource
+builder.Services.AddScoped<HotelProviderResolver>();
+
+// Existing services (WebHotelierPropertiesService handles complex WebHotelier logic for Phase 1)
 builder.Services.AddScoped<WebHotelierPropertiesService>();
 builder.Services.AddScoped<SearchPluginEndpoints>();
 builder.Services.AddScoped<HotelEndpoint>();
@@ -117,6 +126,8 @@ builder.Services.AddScoped<VivaService>();
 builder.Services.AddScoped<VivaAuthService>();
 
 builder.Services.AddScoped<ReservationsRepository>();
+
+#endregion Services
 
 #region Register Endpoint Groups
 

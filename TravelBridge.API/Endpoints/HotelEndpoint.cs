@@ -4,6 +4,7 @@ using TravelBridge.API.Contracts;
 using TravelBridge.API.Helpers;
 using TravelBridge.API.Helpers.Extensions;
 using TravelBridge.API.Repositories;
+using TravelBridge.API.Services;
 using TravelBridge.Providers.WebHotelier;
 using TravelBridge.Providers.WebHotelier.Models.Hotel;
 using TravelBridge.Providers.WebHotelier.Models.Rate;
@@ -11,17 +12,23 @@ using TravelBridge.API.Models.WebHotelier;
 using TravelBridge.Providers.WebHotelier.Models.Responses;
 using TravelBridge.Contracts.Contracts.Responses;
 using TravelBridge.Contracts.Models.Hotels;
+using TravelBridge.Contracts.Providers;
 
 namespace TravelBridge.API.Endpoints
 {
     public class HotelEndpoint
     {
-        private readonly WebHotelierPropertiesService webHotelierPropertiesService;
+        private readonly WebHotelierPropertiesService _webHotelierPropertiesService;
+        private readonly HotelProviderResolver _providerResolver;
         private readonly ILogger<HotelEndpoint> _logger;
 
-        public HotelEndpoint(WebHotelierPropertiesService webHotelierPropertiesService, ILogger<HotelEndpoint> logger)
+        public HotelEndpoint(
+            WebHotelierPropertiesService webHotelierPropertiesService,
+            HotelProviderResolver providerResolver,
+            ILogger<HotelEndpoint> logger)
         {
-            this.webHotelierPropertiesService = webHotelierPropertiesService;
+            _webHotelierPropertiesService = webHotelierPropertiesService;
+            _providerResolver = providerResolver;
             _logger = logger;
         }
 
@@ -58,6 +65,16 @@ namespace TravelBridge.API.Endpoints
                .WithOpenApi(CustomizeGetHotelAvailabilityOperation);
         }
 
+        /// <summary>
+        /// Parses composite hotel ID and returns provider-specific hotel ID.
+        /// Format: "{SourceId}-{HotelId}" (e.g., "2-VAROSRESID" for WebHotelier)
+        /// </summary>
+        private (AvailabilitySource Source, string HotelId) ParseHotelId(string compositeHotelId)
+        {
+            var (provider, hotelId) = _providerResolver.ResolveFromCompositeId(compositeHotelId);
+            return (provider.Source, hotelId);
+        }
+
         private async Task<HotelInfoResponse> GetHotelInfo(string hotelId)
         {
             _logger.LogInformation("GetHotelInfo started for HotelId: {HotelId}", hotelId);
@@ -71,15 +88,19 @@ namespace TravelBridge.API.Endpoints
                     throw new ArgumentException("Hotel ID cannot be null or empty.", nameof(hotelId));
                 }
 
-                var hotelInfo = hotelId.Split('-');
-                if (hotelInfo.Length != 2)
+                var (source, providerHotelId) = ParseHotelId(hotelId);
+                _logger.LogDebug("Parsed hotel ID - Source: {Source}, ProviderHotelId: {ProviderHotelId}", source, providerHotelId);
+
+                // Phase 1: Route all requests through WebHotelierPropertiesService
+                // Future: Use _providerResolver.GetProvider(source).GetHotelInfoAsync(providerHotelId)
+                if (source != AvailabilitySource.WebHotelier)
                 {
-                    _logger.LogWarning("GetHotelInfo failed: Invalid hotelId format {HotelId}", hotelId);
-                    throw new ArgumentException("Invalid hotelId format. Use bbox-lat-lon.");
+                    _logger.LogWarning("GetHotelInfo: Source {Source} not yet supported, only WebHotelier available", source);
+                    throw new NotSupportedException($"Availability source '{source}' is not yet implemented.");
                 }
 
-                _logger.LogDebug("Fetching hotel info from WebHotelier for property: {PropertyId}", hotelInfo[1]);
-                var res = await webHotelierPropertiesService.GetHotelInfo(hotelInfo[1]);
+                _logger.LogDebug("Fetching hotel info from WebHotelier for property: {PropertyId}", providerHotelId);
+                var res = await _webHotelierPropertiesService.GetHotelInfo(providerHotelId);
             
                 var contractsData = res.Data?.ToContracts();
                 if (contractsData != null)
@@ -98,7 +119,7 @@ namespace TravelBridge.API.Endpoints
                     Data = contractsData
                 };
             }
-            catch (Exception ex) when (ex is not ArgumentException)
+            catch (Exception ex) when (ex is not ArgumentException && ex is not NotSupportedException)
             {
                 stopwatch.Stop();
                 _logger.LogError(ex, "GetHotelInfo failed for HotelId: {HotelId} after {ElapsedMs}ms", 
@@ -123,11 +144,14 @@ namespace TravelBridge.API.Endpoints
                     throw new ArgumentException("Hotel ID cannot be null or empty.", nameof(hotelId));
                 }
 
-                var hotelInfo = hotelId.Split('-');
-                if (hotelInfo.Length != 2)
+                var (source, providerHotelId) = ParseHotelId(hotelId);
+                _logger.LogDebug("Parsed hotel ID - Source: {Source}, ProviderHotelId: {ProviderHotelId}", source, providerHotelId);
+
+                // Phase 1: Only WebHotelier supported
+                if (source != AvailabilitySource.WebHotelier)
                 {
-                    _logger.LogWarning("GetHotelFullInfo failed: Invalid hotelId format {HotelId}", hotelId);
-                    throw new ArgumentException("Invalid hotelId format. Use bbox-lat-lon.");
+                    _logger.LogWarning("GetHotelFullInfo: Source {Source} not yet supported", source);
+                    throw new NotSupportedException($"Availability source '{source}' is not yet implemented.");
                 }
 
                 if (!DateTime.TryParseExact(checkin, "dd/MM/yyyy", CultureInfo.InvariantCulture, DateTimeStyles.None, out var parsedCheckin))
@@ -169,14 +193,14 @@ namespace TravelBridge.API.Endpoints
 
                 WHSingleAvailabilityRequest whReq = new()
                 {
-                    PropertyId = hotelInfo[1],
+                    PropertyId = providerHotelId,
                     CheckIn = parsedCheckin.ToString("yyyy-MM-dd"),
                     CheckOut = parsedCheckOut.ToString("yyyy-MM-dd"),
                     Party = party
                 };
 
-                var availTask = webHotelierPropertiesService.GetHotelAvailabilityAsync(whReq, parsedCheckin, reservationsRepository);
-                var hotelTask = webHotelierPropertiesService.GetHotelInfo(hotelInfo[1]);
+                var availTask = _webHotelierPropertiesService.GetHotelAvailabilityAsync(whReq, parsedCheckin, reservationsRepository);
+                var hotelTask = _webHotelierPropertiesService.GetHotelInfo(providerHotelId);
                 await Task.WhenAll(availTask, hotelTask);
 
                 SingleAvailabilityResponse? availRes = await availTask;
@@ -215,7 +239,7 @@ namespace TravelBridge.API.Endpoints
 
                 return res;
             }
-            catch (Exception ex) when (ex is not ArgumentException && ex is not InvalidCastException && ex is not InvalidOperationException)
+            catch (Exception ex) when (ex is not ArgumentException && ex is not InvalidCastException && ex is not InvalidOperationException && ex is not NotSupportedException)
             {
                 stopwatch.Stop();
                 _logger.LogError(ex, "GetHotelFullInfo failed for HotelId: {HotelId} after {ElapsedMs}ms", 
@@ -258,15 +282,18 @@ namespace TravelBridge.API.Endpoints
                     throw new ArgumentException("Room ID cannot be null or empty.", nameof(roomId));
                 }
 
-                var hotelInfo = hotelId.Split('-');
-                if (hotelInfo.Length != 2)
+                var (source, providerHotelId) = ParseHotelId(hotelId);
+                _logger.LogDebug("Parsed hotel ID - Source: {Source}, ProviderHotelId: {ProviderHotelId}", source, providerHotelId);
+
+                // Phase 1: Only WebHotelier supported
+                if (source != AvailabilitySource.WebHotelier)
                 {
-                    _logger.LogWarning("GetRoomInfo failed: Invalid hotelId format {HotelId}", hotelId);
-                    throw new ArgumentException("Invalid hotelId format. Use bbox-lat-lon.");
+                    _logger.LogWarning("GetRoomInfo: Source {Source} not yet supported", source);
+                    throw new NotSupportedException($"Availability source '{source}' is not yet implemented.");
                 }
 
-                _logger.LogDebug("Fetching room info from WebHotelier for PropertyId: {PropertyId}, RoomId: {RoomId}", hotelInfo[1], roomId);
-                var res = await webHotelierPropertiesService.GetRoomInfo(hotelInfo[1], roomId);
+                _logger.LogDebug("Fetching room info from WebHotelier for PropertyId: {PropertyId}, RoomId: {RoomId}", providerHotelId, roomId);
+                var res = await _webHotelierPropertiesService.GetRoomInfo(providerHotelId, roomId);
 
                 stopwatch.Stop();
                 _logger.LogInformation("GetRoomInfo completed for HotelId: {HotelId}, RoomId: {RoomId} in {ElapsedMs}ms, HasData: {HasData}", 
@@ -280,7 +307,7 @@ namespace TravelBridge.API.Endpoints
                     Data = res.Data?.ToContracts()
                 };
             }
-            catch (Exception ex) when (ex is not ArgumentException)
+            catch (Exception ex) when (ex is not ArgumentException && ex is not NotSupportedException)
             {
                 stopwatch.Stop();
                 _logger.LogError(ex, "GetRoomInfo failed for HotelId: {HotelId}, RoomId: {RoomId} after {ElapsedMs}ms", 
@@ -311,11 +338,20 @@ namespace TravelBridge.API.Endpoints
                     throw new InvalidCastException("Invalid checkout date format. Use dd/MM/yyyy.");
                 }
 
-                var hotelInfo = hotelId.Split('-');
-                if (hotelInfo.Length != 2)
+                if (string.IsNullOrWhiteSpace(hotelId))
                 {
-                    _logger.LogWarning("GetHotelAvailability failed: Invalid hotelId format {HotelId}", hotelId);
-                    throw new ArgumentException("Invalid hotelId format. Use bbox-lat-lon.");
+                    _logger.LogWarning("GetHotelAvailability failed: Hotel ID is null or empty");
+                    throw new ArgumentException("Hotel ID cannot be null or empty.", nameof(hotelId));
+                }
+
+                var (source, providerHotelId) = ParseHotelId(hotelId);
+                _logger.LogDebug("Parsed hotel ID - Source: {Source}, ProviderHotelId: {ProviderHotelId}", source, providerHotelId);
+
+                // Phase 1: Only WebHotelier supported
+                if (source != AvailabilitySource.WebHotelier)
+                {
+                    _logger.LogWarning("GetHotelAvailability: Source {Source} not yet supported", source);
+                    throw new NotSupportedException($"Availability source '{source}' is not yet implemented.");
                 }
 
                 if (string.IsNullOrWhiteSpace(party))
@@ -345,13 +381,13 @@ namespace TravelBridge.API.Endpoints
 
                 WHSingleAvailabilityRequest whReq = new()
                 {
-                    PropertyId = hotelInfo[1],
+                    PropertyId = providerHotelId,
                     CheckIn = parsedCheckin.ToString("yyyy-MM-dd"),
                     CheckOut = parsedCheckOut.ToString("yyyy-MM-dd"),
                     Party = party
                 };
 
-                var res = await webHotelierPropertiesService.GetHotelAvailabilityAsync(whReq, parsedCheckin, reservationsRepository);
+                var res = await _webHotelierPropertiesService.GetHotelAvailabilityAsync(whReq, parsedCheckin, reservationsRepository);
 
                 if (res.Data != null)
                 {
@@ -364,7 +400,7 @@ namespace TravelBridge.API.Endpoints
 
                 return res;
             }
-            catch (Exception ex) when (ex is not ArgumentException && ex is not InvalidCastException && ex is not InvalidOperationException)
+            catch (Exception ex) when (ex is not ArgumentException && ex is not InvalidCastException && ex is not InvalidOperationException && ex is not NotSupportedException)
             {
                 stopwatch.Stop();
                 _logger.LogError(ex, "GetHotelAvailability failed for HotelId: {HotelId} after {ElapsedMs}ms", 

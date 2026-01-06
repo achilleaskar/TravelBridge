@@ -3,11 +3,15 @@ using System.Text;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Options;
+using TravelBridge.Contracts.Providers;
 
 namespace TravelBridge.Providers.WebHotelier;
 
 public static class ServiceCollectionExtensions
 {
+    /// <summary>
+    /// Registers WebHotelier services including the HTTP client, client wrapper, and IHotelProvider implementation.
+    /// </summary>
     public static IServiceCollection AddWebHotelier(this IServiceCollection services, IConfiguration configuration)
     {
         services.Configure<WebHotelierApiOptions>(configuration.GetSection("WebHotelierApi"));
@@ -24,6 +28,9 @@ public static class ServiceCollectionExtensions
         });
 
         services.AddScoped<WebHotelierClient>();
+        
+        // Register IHotelProvider implementation for WebHotelier
+        services.AddScoped<IHotelProvider, WebHotelierHotelProvider>();
 
         return services;
     }

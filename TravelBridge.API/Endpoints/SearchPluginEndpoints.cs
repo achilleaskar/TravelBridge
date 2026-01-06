@@ -5,25 +5,33 @@ using Microsoft.OpenApi.Models;
 using TravelBridge.API.Contracts;
 using TravelBridge.API.Helpers;
 using TravelBridge.API.Helpers.Extensions;
+using TravelBridge.API.Services;
 using TravelBridge.Geo.Mapbox;
 using TravelBridge.Contracts.Plugin.AutoComplete;
 using TravelBridge.Contracts.Plugin.Filters;
 using TravelBridge.Providers.WebHotelier;
 using TravelBridge.API.Models.WebHotelier;
+using TravelBridge.Contracts.Providers;
 
 namespace TravelBridge.API.Endpoints
 {
     public class SearchPluginEndpoints
     {
-        private readonly WebHotelierPropertiesService webHotelierPropertiesService;
-        private readonly MapBoxService mapBoxService;
-        private readonly ILogger<SearchPluginEndpoints> logger;
+        private readonly WebHotelierPropertiesService _webHotelierPropertiesService;
+        private readonly HotelProviderResolver _providerResolver;
+        private readonly MapBoxService _mapBoxService;
+        private readonly ILogger<SearchPluginEndpoints> _logger;
 
-        public SearchPluginEndpoints(WebHotelierPropertiesService webHotelierPropertiesService, MapBoxService mapBoxService, ILogger<SearchPluginEndpoints> logger)
+        public SearchPluginEndpoints(
+            WebHotelierPropertiesService webHotelierPropertiesService,
+            HotelProviderResolver providerResolver,
+            MapBoxService mapBoxService,
+            ILogger<SearchPluginEndpoints> logger)
         {
-            this.webHotelierPropertiesService = webHotelierPropertiesService;
-            this.mapBoxService = mapBoxService;
-            this.logger = logger;
+            _webHotelierPropertiesService = webHotelierPropertiesService;
+            _providerResolver = providerResolver;
+            _mapBoxService = mapBoxService;
+            _logger = logger;
         }
 
         public record SubmitSearchParameters
@@ -93,13 +101,15 @@ namespace TravelBridge.API.Endpoints
 
         private async Task<object> GetAllProperties(string? type)
         {
-            logger.LogInformation("GetAllProperties started, Type filter: {Type}", type ?? "none");
+            _logger.LogInformation("GetAllProperties started, Type filter: {Type}", type ?? "none");
             var stopwatch = System.Diagnostics.Stopwatch.StartNew();
 
             try
             {
-                var whHotels = await webHotelierPropertiesService.GetAllPropertiesFromWebHotelierAsync();
-                logger.LogDebug("GetAllProperties: Retrieved {Count} hotels from WebHotelier", whHotels?.Length ?? 0);
+                // Phase 1: Get properties from WebHotelier only
+                // Future: Aggregate from all providers using _providerResolver.GetAllProviders()
+                var whHotels = await _webHotelierPropertiesService.GetAllPropertiesFromWebHotelierAsync();
+                _logger.LogDebug("GetAllProperties: Retrieved {Count} hotels from WebHotelier", whHotels?.Length ?? 0);
 
                 var Hotels = whHotels.MapToAutoCompleteHotels().ToList();
 
@@ -124,7 +134,7 @@ namespace TravelBridge.API.Endpoints
 
                 if (string.IsNullOrEmpty(type))
                 {
-                    logger.LogInformation("GetAllProperties completed in {ElapsedMs}ms, returning {Count} hotels (limited to 50)", 
+                    _logger.LogInformation("GetAllProperties completed in {ElapsedMs}ms, returning {Count} hotels (limited to 50)", 
                         stopwatch.ElapsedMilliseconds, Math.Min(Hotels.Count, 50));
                     return new
                     {
@@ -140,7 +150,7 @@ namespace TravelBridge.API.Endpoints
                     groupedHotels.TryGetValue(type, out HotelsOfType);
                 }
 
-                logger.LogInformation("GetAllProperties completed in {ElapsedMs}ms, Type: {Type}, returning {Count} hotels", 
+                _logger.LogInformation("GetAllProperties completed in {ElapsedMs}ms, Type: {Type}, returning {Count} hotels", 
                     stopwatch.ElapsedMilliseconds, type, HotelsOfType?.Count ?? 0);
 
                 return new
@@ -152,14 +162,14 @@ namespace TravelBridge.API.Endpoints
             catch (Exception ex)
             {
                 stopwatch.Stop();
-                logger.LogError(ex, "GetAllProperties failed after {ElapsedMs}ms", stopwatch.ElapsedMilliseconds);
+                _logger.LogError(ex, "GetAllProperties failed after {ElapsedMs}ms", stopwatch.ElapsedMilliseconds);
                 throw;
             }
         }
 
         private async Task<PluginSearchResponse> GetSearchResults(SubmitSearchParameters pars)
         {
-            logger.LogInformation("GetSearchResults started - SearchTerm: {SearchTerm}, CheckIn: {CheckIn}, CheckOut: {CheckOut}, Bbox: {Bbox}, Adults: {Adults}, Rooms: {Rooms}, Page: {Page}", 
+            _logger.LogInformation("GetSearchResults started - SearchTerm: {SearchTerm}, CheckIn: {CheckIn}, CheckOut: {CheckOut}, Bbox: {Bbox}, Adults: {Adults}, Rooms: {Rooms}, Page: {Page}", 
                 pars.searchTerm, pars.checkin, pars.checkOut, pars.bbox, pars.adults, pars.rooms, pars.page);
             var stopwatch = System.Diagnostics.Stopwatch.StartNew();
 
@@ -169,20 +179,20 @@ namespace TravelBridge.API.Endpoints
 
                 if (!DateTime.TryParseExact(pars.checkin, "dd/MM/yyyy", CultureInfo.InvariantCulture, DateTimeStyles.None, out var parsedCheckin))
                 {
-                    logger.LogWarning("GetSearchResults failed: Invalid checkin date format {CheckIn}", pars.checkin);
+                    _logger.LogWarning("GetSearchResults failed: Invalid checkin date format {CheckIn}", pars.checkin);
                     throw new InvalidCastException("Invalid checkin date format. Use dd/MM/yyyy.");
                 }
 
                 if (!DateTime.TryParseExact(pars.checkOut, "dd/MM/yyyy", CultureInfo.InvariantCulture, DateTimeStyles.None, out var parsedCheckOut))
                 {
-                    logger.LogWarning("GetSearchResults failed: Invalid checkout date format {CheckOut}", pars.checkOut);
+                    _logger.LogWarning("GetSearchResults failed: Invalid checkout date format {CheckOut}", pars.checkOut);
                     throw new InvalidCastException("Invalid checkout date format. Use dd/MM/yyyy.");
                 }
 
                 var location = pars.bbox.Split('-');
                 if (location.Length != 3)
                 {
-                    logger.LogWarning("GetSearchResults failed: Invalid bbox format {Bbox}", pars.bbox);
+                    _logger.LogWarning("GetSearchResults failed: Invalid bbox format {Bbox}", pars.bbox);
                     throw new ArgumentException("Invalid bbox format. Use bbox-lat-lon.");
                 }
 
@@ -192,13 +202,13 @@ namespace TravelBridge.API.Endpoints
                 {
                     if (pars.rooms != 1)
                     {
-                        logger.LogWarning("GetSearchResults failed: Party required when rooms > 1, Rooms: {Rooms}", pars.rooms);
+                        _logger.LogWarning("GetSearchResults failed: Party required when rooms > 1, Rooms: {Rooms}", pars.rooms);
                         throw new InvalidOperationException("when room greated than 1 party must be used");
                     }
 
                     if (pars.adults == null || pars.adults < 1)
                     {
-                        logger.LogWarning("GetSearchResults failed: At least one adult required, Adults: {Adults}", pars.adults);
+                        _logger.LogWarning("GetSearchResults failed: At least one adult required, Adults: {Adults}", pars.adults);
                         throw new ArgumentException("There must be at least one adult in the room.");
                     }
 
@@ -211,8 +221,10 @@ namespace TravelBridge.API.Endpoints
 
                 #endregion Param Validation
 
-                logger.LogDebug("GetSearchResults: Params validated, fetching availability from WebHotelier");
+                _logger.LogDebug("GetSearchResults: Params validated, fetching availability from WebHotelier");
 
+                // Phase 1: Search WebHotelier only
+                // Future: Use HotelSearchRequest with _providerResolver to search multiple providers
                 MultiAvailabilityRequest req = new()
                 {
                     CheckIn = parsedCheckin.ToString("yyyy-MM-dd"),
@@ -245,14 +257,14 @@ namespace TravelBridge.API.Endpoints
                     SortOrder = req.SortOrder
                 };
 
-                var res = await webHotelierPropertiesService.GetAvailabilityAsync(whReq)
+                var res = await _webHotelierPropertiesService.GetAvailabilityAsync(whReq)
                     ?? new PluginSearchResponse
                     {
                         Results = new List<WebHotel>(),
                         Filters = new(),
                     };
 
-                logger.LogDebug("GetSearchResults: Received {Count} results from WebHotelier", res.Results?.Count() ?? 0);
+                _logger.LogDebug("GetSearchResults: Received {Count} results from WebHotelier", res.Results?.Count() ?? 0);
 
                 res.SearchTerm = pars.searchTerm;
                 int nights = (parsedCheckOut - parsedCheckin).Days;
@@ -280,7 +292,7 @@ namespace TravelBridge.API.Endpoints
                 }
 
                 stopwatch.Stop();
-                logger.LogInformation("GetSearchResults completed in {ElapsedMs}ms - SearchTerm: {SearchTerm}, ResultsCount: {ResultsCount}, FiltersCount: {FiltersCount}", 
+                _logger.LogInformation("GetSearchResults completed in {ElapsedMs}ms - SearchTerm: {SearchTerm}, ResultsCount: {ResultsCount}, FiltersCount: {FiltersCount}", 
                     stopwatch.ElapsedMilliseconds, pars.searchTerm, res.ResultsCount, res.Filters?.Count ?? 0);
 
                 return res;
@@ -288,7 +300,7 @@ namespace TravelBridge.API.Endpoints
             catch (Exception ex) when (ex is not InvalidCastException && ex is not ArgumentException && ex is not InvalidOperationException)
             {
                 stopwatch.Stop();
-                logger.LogError(ex, "GetSearchResults failed for SearchTerm: {SearchTerm} after {ElapsedMs}ms", 
+                _logger.LogError(ex, "GetSearchResults failed for SearchTerm: {SearchTerm} after {ElapsedMs}ms", 
                     pars.searchTerm, stopwatch.ElapsedMilliseconds);
                 throw;
             }
@@ -617,14 +629,14 @@ namespace TravelBridge.API.Endpoints
 
         private async Task<AutoCompleteResponse> GetAutocompleteResults(string? searchQuery)
         {
-            logger.LogInformation("GetAutocompleteResults started for SearchQuery: {SearchQuery}", searchQuery);
+            _logger.LogInformation("GetAutocompleteResults started for SearchQuery: {SearchQuery}", searchQuery);
             var stopwatch = System.Diagnostics.Stopwatch.StartNew();
 
             try
             {
                 if (string.IsNullOrWhiteSpace(searchQuery) || searchQuery.Length < 3)
                 {
-                    logger.LogDebug("GetAutocompleteResults: Search query too short (< 3 chars), returning empty result");
+                    _logger.LogDebug("GetAutocompleteResults: Search query too short (< 3 chars), returning empty result");
                     return new AutoCompleteResponse
                     {
                         Hotels = [],
@@ -632,9 +644,9 @@ namespace TravelBridge.API.Endpoints
                     };
                 }
 
-                logger.LogDebug("GetAutocompleteResults: Searching hotels and locations for: {SearchQuery}", searchQuery);
-                var hotelsTask = webHotelierPropertiesService.SearchPropertyFromWebHotelierAsync(searchQuery);
-                var locationsTask = mapBoxService.GetLocationsAsync(searchQuery, "el");
+                _logger.LogDebug("GetAutocompleteResults: Searching hotels and locations for: {SearchQuery}", searchQuery);
+                var hotelsTask = _webHotelierPropertiesService.SearchPropertyFromWebHotelierAsync(searchQuery);
+                var locationsTask = _mapBoxService.GetLocationsAsync(searchQuery, "el");
                 await Task.WhenAll(hotelsTask, locationsTask);
 
                 var result = new AutoCompleteResponse
@@ -644,7 +656,7 @@ namespace TravelBridge.API.Endpoints
                 };
 
                 stopwatch.Stop();
-                logger.LogInformation("GetAutocompleteResults completed in {ElapsedMs}ms for SearchQuery: {SearchQuery}, HotelsCount: {HotelsCount}, LocationsCount: {LocationsCount}", 
+                _logger.LogInformation("GetAutocompleteResults completed in {ElapsedMs}ms for SearchQuery: {SearchQuery}, HotelsCount: {HotelsCount}, LocationsCount: {LocationsCount}", 
                     stopwatch.ElapsedMilliseconds, searchQuery, result.Hotels?.Count() ?? 0, result.Locations?.Count() ?? 0);
 
                 return result;
@@ -652,7 +664,7 @@ namespace TravelBridge.API.Endpoints
             catch (Exception ex)
             {
                 stopwatch.Stop();
-                logger.LogError(ex, "GetAutocompleteResults failed for SearchQuery: {SearchQuery} after {ElapsedMs}ms", 
+                _logger.LogError(ex, "GetAutocompleteResults failed for SearchQuery: {SearchQuery} after {ElapsedMs}ms", 
                     searchQuery, stopwatch.ElapsedMilliseconds);
                 throw;
             }
