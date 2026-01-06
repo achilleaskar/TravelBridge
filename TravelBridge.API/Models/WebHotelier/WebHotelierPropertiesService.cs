@@ -2,6 +2,7 @@ using System.Globalization;
 using System.Net.Http.Headers;
 using System.Net.Mail;
 using System.Reflection;
+using Microsoft.Extensions.Caching.Memory;
 using Microsoft.Extensions.Options;
 using TravelBridge.API.Contracts;
 using TravelBridge.API.Contracts.DTOs;
@@ -26,13 +27,24 @@ namespace TravelBridge.API.Models.WebHotelier
         private readonly SmtpEmailSender _mailSender;
         private readonly TestCardOptions _testCardOptions;
         private readonly ILogger<WebHotelierPropertiesService> _logger;
+        private readonly IMemoryCache _cache;
 
-        public WebHotelierPropertiesService(WebHotelierClient whClient, SmtpEmailSender mailSender, IOptions<TestCardOptions> testCardOptions, ILogger<WebHotelierPropertiesService> logger)
+        // Cache durations
+        private static readonly TimeSpan HotelInfoCacheDuration = TimeSpan.FromHours(6);
+        private static readonly TimeSpan RoomInfoCacheDuration = TimeSpan.FromHours(6);
+
+        public WebHotelierPropertiesService(
+            WebHotelierClient whClient, 
+            SmtpEmailSender mailSender, 
+            IOptions<TestCardOptions> testCardOptions, 
+            ILogger<WebHotelierPropertiesService> logger,
+            IMemoryCache cache)
         {
             _whClient = whClient;
             _mailSender = mailSender;
             _testCardOptions = testCardOptions.Value;
             _logger = logger;
+            _cache = cache;
         }
 
         /// <summary>
@@ -428,7 +440,16 @@ namespace TravelBridge.API.Models.WebHotelier
 
         internal async Task<WHHotelInfoResponse> GetHotelInfo(string hotelId)
         {
-            _logger.LogDebug("GetHotelInfo started for HotelId: {HotelId}", hotelId);
+            var cacheKey = $"hotel_info_{hotelId}";
+            
+            // Try to get from cache first
+            if (_cache.TryGetValue(cacheKey, out WHHotelInfoResponse? cachedResult) && cachedResult != null)
+            {
+                _logger.LogDebug("GetHotelInfo cache HIT for HotelId: {HotelId}", hotelId);
+                return cachedResult;
+            }
+
+            _logger.LogDebug("GetHotelInfo cache MISS for HotelId: {HotelId}", hotelId);
             var stopwatch = System.Diagnostics.Stopwatch.StartNew();
 
             try
@@ -437,9 +458,12 @@ namespace TravelBridge.API.Models.WebHotelier
                 res.Data!.LargePhotos = res.Data.PhotosItems.Select(p => p.Large);
                 res.Data.PhotosItems = [];
 
+                // Cache the result
+                _cache.Set(cacheKey, res, HotelInfoCacheDuration);
+
                 stopwatch.Stop();
-                _logger.LogDebug("GetHotelInfo completed in {ElapsedMs}ms for HotelId: {HotelId}, HotelName: {HotelName}", 
-                    stopwatch.ElapsedMilliseconds, hotelId, res.Data?.Name);
+                _logger.LogDebug("GetHotelInfo completed in {ElapsedMs}ms for HotelId: {HotelId}, HotelName: {HotelName} (cached for {CacheMinutes}min)", 
+                    stopwatch.ElapsedMilliseconds, hotelId, res.Data?.Name, HotelInfoCacheDuration.TotalMinutes);
 
                 return res;
             }
@@ -453,7 +477,16 @@ namespace TravelBridge.API.Models.WebHotelier
 
         internal async Task<WHRoomInfoResponse> GetRoomInfo(string hotelId, string roomcode)
         {
-            _logger.LogDebug("GetRoomInfo started for HotelId: {HotelId}, RoomCode: {RoomCode}", hotelId, roomcode);
+            var cacheKey = $"room_info_{hotelId}_{roomcode}";
+            
+            // Try to get from cache first
+            if (_cache.TryGetValue(cacheKey, out WHRoomInfoResponse? cachedResult) && cachedResult != null)
+            {
+                _logger.LogDebug("GetRoomInfo cache HIT for HotelId: {HotelId}, RoomCode: {RoomCode}", hotelId, roomcode);
+                return cachedResult;
+            }
+
+            _logger.LogDebug("GetRoomInfo cache MISS for HotelId: {HotelId}, RoomCode: {RoomCode}", hotelId, roomcode);
             var stopwatch = System.Diagnostics.Stopwatch.StartNew();
 
             try
@@ -462,9 +495,12 @@ namespace TravelBridge.API.Models.WebHotelier
                 res.Data!.LargePhotos = res.Data.PhotosItems.Select(p => p.Large);
                 res.Data.MediumPhotos = res.Data.PhotosItems.Select(p => p.Medium);
 
+                // Cache the result
+                _cache.Set(cacheKey, res, RoomInfoCacheDuration);
+
                 stopwatch.Stop();
-                _logger.LogDebug("GetRoomInfo completed in {ElapsedMs}ms for HotelId: {HotelId}, RoomCode: {RoomCode}", 
-                    stopwatch.ElapsedMilliseconds, hotelId, roomcode);
+                _logger.LogDebug("GetRoomInfo completed in {ElapsedMs}ms for HotelId: {HotelId}, RoomCode: {RoomCode} (cached for {CacheMinutes}min)", 
+                    stopwatch.ElapsedMilliseconds, hotelId, roomcode, RoomInfoCacheDuration.TotalMinutes);
 
                 return res;
             }

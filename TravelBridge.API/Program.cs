@@ -1,8 +1,11 @@
+using System.Threading.RateLimiting;
 using Microsoft.AspNetCore.ResponseCompression;
 using Microsoft.AspNetCore.Routing.Constraints;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Options;
 using Microsoft.OpenApi.Models;
+using Polly;
+using Polly.Extensions.Http;
 using Serilog;
 using Serilog.Events;
 using TravelBridge.API.DataBase;
@@ -43,6 +46,13 @@ builder.Host.UseSerilog();
 // Add HttpContextAccessor
 builder.Services.AddHttpContextAccessor();
 
+// Add Memory Cache for hotel/room info caching
+builder.Services.AddMemoryCache();
+
+// Add Health Checks
+builder.Services.AddHealthChecks()
+    .AddMySql(connectionString!, name: "database", tags: ["db", "mysql"]);
+
 builder.Services.AddDbContext<AppDbContext>(options =>
     options.UseMySql(
         connectionString,
@@ -53,21 +63,49 @@ builder.Services.AddDbContext<AppDbContext>(options =>
         }
     ));
 
-// Add CORS services
+// Add CORS services with environment-specific policies
 builder.Services.AddCors(options =>
 {
-    options.AddPolicy("AllowAll", policy =>
+    // Development: Allow all origins
+    options.AddPolicy("Development", policy =>
     {
-        policy.AllowAnyOrigin() // Allow any origin
-              .AllowAnyMethod() // Allow any HTTP method (GET, POST, etc.)
-              .AllowAnyHeader(); // Allow any header
+        policy.AllowAnyOrigin()
+              .AllowAnyMethod()
+              .AllowAnyHeader();
     });
+
+    // Production: Restrict to known origins
+    options.AddPolicy("Production", policy =>
+    {
+        policy.WithOrigins(
+                "https://my-diakopes.gr",
+                "https://www.my-diakopes.gr",
+                "https://travelproject.gr",
+                "https://www.travelproject.gr")
+              .AllowAnyMethod()
+              .AllowAnyHeader();
+    });
+});
+
+// Add Rate Limiting
+builder.Services.AddRateLimiter(options =>
+{
+    options.RejectionStatusCode = StatusCodes.Status429TooManyRequests;
+    options.GlobalLimiter = PartitionedRateLimiter.Create<HttpContext, string>(httpContext =>
+        RateLimitPartition.GetFixedWindowLimiter(
+            partitionKey: httpContext.Connection.RemoteIpAddress?.ToString() ?? "unknown",
+            factory: _ => new FixedWindowRateLimiterOptions
+            {
+                PermitLimit = 100,
+                Window = TimeSpan.FromMinutes(1),
+                QueueLimit = 0
+            }));
 });
 
 // Add response compression services
 builder.Services.AddResponseCompression(options =>
 {
-    options.EnableForHttps = true; // Enable compression for HTTPS requests
+    options.EnableForHttps = true;
     options.Providers.Add<GzipCompressionProvider>();
 });
 
@@ -77,9 +115,9 @@ builder.Services
     {
         options.SwaggerDoc("v1", new OpenApiInfo
         {
-            Title = "Sample API",
+            Title = "TravelBridge API",
             Version = "v1",
-            Description = "API to demonstrate Swagger integration."
+            Description = "Hotel booking API with WebHotelier and Viva Wallet integration."
         });
     }).Configure<RouteOptions>(options =>
     {
@@ -88,7 +126,7 @@ builder.Services
 
 #region HttpClients
 
-// Register providers using extension methods
+// Register providers using extension methods (with Polly retry policies)
 builder.Services.AddHereMaps(builder.Configuration);
 builder.Services.AddMapBox(builder.Configuration);
 builder.Services.AddWebHotelier(builder.Configuration);
@@ -99,11 +137,28 @@ builder.Services.Configure<VivaApiOptions>(builder.Configuration.GetSection("Viv
 // Bind TestCard section to TestCardOptions
 builder.Services.Configure<TestCardOptions>(builder.Configuration.GetSection("TestCard"));
 
-// Register HttpClient with BaseAddress from configuration
+// Register Viva HttpClient with fast-fail retry policy (1 retry only for payments)
 builder.Services.AddHttpClient("VivaApi", (sp, client) =>
 {
     var options = sp.GetRequiredService<IOptions<VivaApiOptions>>().Value;
-    client.BaseAddress = new Uri(options.BaseUrl); // Use BaseUrl from appsettings.json
+    client.BaseAddress = new Uri(options.BaseUrl);
+})
+.AddPolicyHandler((sp, _) =>
+{
+    var logger = sp.GetService<ILogger<VivaService>>();
+    return HttpPolicyExtensions
+        .HandleTransientHttpError()
+        .WaitAndRetryAsync(
+            retryCount: 1,
+            sleepDurationProvider: _ => TimeSpan.FromMilliseconds(100),
+            onRetry: (outcome, timespan, retryAttempt, context) =>
+            {
+                logger?.LogWarning(
+                    "Viva payment HTTP retry {RetryAttempt} after {DelayMs}ms due to {Reason}",
+                    retryAttempt,
+                    timespan.TotalMilliseconds,
+                    outcome.Result?.StatusCode.ToString() ?? outcome.Exception?.Message);
+            });
 });
 
 #endregion HttpClients
@@ -125,22 +180,35 @@ var app = builder.Build();
 
 app.UseResponseCompression();
 
-// Use the CORS policy
-app.UseCors("AllowAll");
+// Use environment-specific CORS policy
+var env = app.Environment;
+app.UseCors(env.IsDevelopment() ? "Development" : "Production");
 
-// Lightweight request logging middleware - logs only essential info, no body content
+// Use Rate Limiting
+app.UseRateLimiter();
+
+// Lightweight request logging middleware with correlation ID
 app.Use(async (context, next) =>
 {
     var logger = context.RequestServices.GetRequiredService<ILogger<Program>>();
+    
+    // Get or generate session ID from request header
+    var sessionId = context.Request.Headers["X-Session-Id"].FirstOrDefault() 
+                    ?? Guid.NewGuid().ToString("N")[..8];
     var requestId = Guid.NewGuid().ToString("N")[..8];
+    
+    // Set response headers for tracking
+    context.Response.Headers["X-Session-Id"] = sessionId;
+    context.Response.Headers["X-Request-Id"] = requestId;
+    
     var stopwatch = System.Diagnostics.Stopwatch.StartNew();
     
-    // Log request start with key identifiers only
+    // Enrich log context with correlation IDs
+    using (Serilog.Context.LogContext.PushProperty("SessionId", sessionId))
     using (Serilog.Context.LogContext.PushProperty("RequestId", requestId))
     {
         logger.LogInformation(
-            "REQ {RequestId} {Method} {Path}{QueryString}",
-            requestId,
+            "REQ {Method} {Path}{QueryString}",
             context.Request.Method,
             context.Request.Path,
             context.Request.QueryString);
@@ -151,8 +219,7 @@ app.Use(async (context, next) =>
             
             stopwatch.Stop();
             logger.LogInformation(
-                "RES {RequestId} {StatusCode} in {ElapsedMs}ms",
-                requestId,
+                "RES {StatusCode} in {ElapsedMs}ms",
                 context.Response.StatusCode,
                 stopwatch.ElapsedMilliseconds);
         }
@@ -160,8 +227,7 @@ app.Use(async (context, next) =>
         {
             stopwatch.Stop();
             logger.LogError(ex,
-                "ERR {RequestId} {Method} {Path} failed after {ElapsedMs}ms: {ErrorMessage}",
-                requestId,
+                "ERR {Method} {Path} failed after {ElapsedMs}ms: {ErrorMessage}",
                 context.Request.Method,
                 context.Request.Path,
                 stopwatch.ElapsedMilliseconds,
@@ -170,6 +236,9 @@ app.Use(async (context, next) =>
         }
     }
 });
+
+// Map Health Check endpoint
+app.MapHealthChecks("/health");
 
 // Create a scope for the DI container
 using (var scope = app.Services.CreateScope())
