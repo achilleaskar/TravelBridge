@@ -261,7 +261,12 @@ namespace TravelBridge.API.Endpoints
                 party = BuildMultiRoomJson(pars.Party);
             }
 
-            var (providerId, actualHotelId) = CompositeIdHelper.ParseHotelId(pars.HotelId ?? throw new ArgumentException("Hotel ID cannot be null.", nameof(pars.HotelId)));
+            if (string.IsNullOrWhiteSpace(pars.HotelId))
+            {
+                throw new ArgumentException("Hotel ID cannot be null or empty.", nameof(pars.HotelId));
+            }
+
+            var (providerId, actualHotelId) = CompositeIdHelper.ParseHotelId(pars.HotelId);
 
             #endregion Param Validation
 
@@ -410,7 +415,12 @@ namespace TravelBridge.API.Endpoints
                 }
             }
 
-            var (providerId, actualHotelId) = CompositeIdHelper.ParseHotelId(reservationRequest.reservationDetails.hotelId ?? throw new ArgumentException("Hotel ID cannot be null.", nameof(reservationRequest.reservationDetails.hotelId)));
+            if (string.IsNullOrWhiteSpace(reservationRequest.reservationDetails.hotelId))
+            {
+                throw new ArgumentException("Hotel ID cannot be null or empty.", nameof(reservationRequest.reservationDetails.hotelId));
+            }
+
+            var (providerId, actualHotelId) = CompositeIdHelper.ParseHotelId(reservationRequest.reservationDetails.hotelId);
 
             #endregion Param Validation
 
@@ -553,7 +563,12 @@ namespace TravelBridge.API.Endpoints
             //    party = BuildMultiRoomJson(pars.party);
             //}
 
-            var (providerId, actualHotelId) = CompositeIdHelper.ParseHotelId(pars.hotelId ?? throw new ArgumentException("Hotel ID cannot be null.", nameof(pars.hotelId)));
+            if (string.IsNullOrWhiteSpace(pars.hotelId))
+            {
+                throw new ArgumentException("Hotel ID cannot be null or empty.", nameof(pars.hotelId));
+            }
+
+            var (providerId, actualHotelId) = CompositeIdHelper.ParseHotelId(pars.hotelId);
 
             #endregion Param Validation
 

@@ -60,7 +60,7 @@ namespace TravelBridge.API.Helpers
             string remainder = compositeBBoxId.Substring(firstDashIndex + 1);
 
             int secondDashIndex = remainder.IndexOf('-');
-            if (secondDashIndex <= 0 || secondDashIndex >= remainder.Length - 1)
+            if (secondDashIndex < 0 || secondDashIndex >= remainder.Length - 1)
             {
                 throw new ArgumentException(
                     "Invalid bbox format. Expected format: {bbox}-{latitude}-{longitude}",
