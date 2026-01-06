@@ -22,6 +22,7 @@
   <ItemGroup>
     <ProjectReference Include="..\TravelBridge.API\TravelBridge.API.csproj" />
     <ProjectReference Include="..\TravelBridge.Contracts\TravelBridge.Contracts.csproj" />
+    <ProjectReference Include="..\TravelBridge.Providers.Abstractions\TravelBridge.Providers.Abstractions.csproj" />
   </ItemGroup>
 
 </Project>

@@ -15,6 +15,7 @@ using TravelBridge.Payments.Viva.Models.ExternalModels;
 using TravelBridge.Payments.Viva.Services.Viva;
 using TravelBridge.Providers.WebHotelier;
 using TravelBridge.Providers.WebHotelier.Models.Responses;
+using TravelBridge.Providers.Abstractions;
 using static TravelBridge.API.Helpers.General;
 
 namespace TravelBridge.API.Endpoints
@@ -353,11 +354,10 @@ namespace TravelBridge.API.Endpoints
                     party = BuildMultiRoomJson(pars.Party);
                 }
 
-                var hotelInfo = pars.HotelId?.Split('-');
-                if (hotelInfo?.Length != 2)
+                if (!CompositeId.TryParse(pars.HotelId, out var compositeId))
                 {
                     _logger.LogWarning("PreparePayment failed: Invalid hotelId format {HotelId}", pars.HotelId);
-                    throw new ArgumentException("Invalid hotelId format. Use bbox-lat-lon.");
+                    throw new ArgumentException("Invalid hotelId format. Expected format: '{providerId}-{hotelCode}'.", nameof(pars.HotelId));
                 }
 
                 #endregion Param Validation
@@ -366,13 +366,13 @@ namespace TravelBridge.API.Endpoints
 
                 WHSingleAvailabilityRequest whReq = new()
                 {
-                    PropertyId = hotelInfo[1],
+                    PropertyId = compositeId.Value,
                     CheckIn = parsedCheckin.ToString("yyyy-MM-dd"),
                     CheckOut = parsedCheckOut.ToString("yyyy-MM-dd"),
                     Party = party
                 };
 
-                var hotelTask = webHotelierPropertiesService.GetHotelInfo(hotelInfo[1]);
+                var hotelTask = webHotelierPropertiesService.GetHotelInfo(compositeId.Value);
                 var availTask = webHotelierPropertiesService.GetHotelAvailabilityAsync(whReq, parsedCheckin, repo, SelectedRates, pars.couponCode);
                 await Task.WhenAll(availTask, hotelTask);
 
@@ -541,11 +541,10 @@ namespace TravelBridge.API.Endpoints
                     }
                 }
 
-                var hotelInfo = reservationRequest.reservationDetails.hotelId?.Split('-');
-                if (hotelInfo?.Length != 2)
+                if (!CompositeId.TryParse(reservationRequest.reservationDetails.hotelId, out var compositeId))
                 {
                     _logger.LogWarning("ApplyCoupon failed: Invalid hotelId format");
-                    throw new ArgumentException("Invalid hotelId format. Use bbox-lat-lon.");
+                    throw new ArgumentException("Invalid hotelId format. Expected format: '{providerId}-{hotelCode}'.");
                 }
 
                 #endregion Param Validation
@@ -554,13 +553,13 @@ namespace TravelBridge.API.Endpoints
 
                 WHSingleAvailabilityRequest whReq = new()
                 {
-                    PropertyId = hotelInfo[1],
+                    PropertyId = compositeId.Value,
                     CheckIn = parsedCheckin.ToString("yyyy-MM-dd"),
                     CheckOut = parsedCheckOut.ToString("yyyy-MM-dd"),
                     Party = null
                 };
 
-                var hotelTask = webHotelierPropertiesService.GetHotelInfo(hotelInfo[1]);
+                var hotelTask = webHotelierPropertiesService.GetHotelInfo(compositeId.Value);
                 var availTask = webHotelierPropertiesService.GetHotelAvailabilityAsync(whReq, parsedCheckin, repo, Selectedrates,reservationRequest.couponCode);
                 await Task.WhenAll(availTask, hotelTask);
 
@@ -718,11 +717,10 @@ namespace TravelBridge.API.Endpoints
                 //    party = BuildMultiRoomJson(pars.party);
                 //}
 
-                var hotelInfo = pars.hotelId?.Split('-');
-                if (hotelInfo?.Length != 2)
+                if (!CompositeId.TryParse(pars.hotelId, out var compositeId))
                 {
                     _logger.LogWarning("GetCheckoutInfo failed: Invalid hotelId format");
-                    throw new ArgumentException("Invalid hotelId format. Use bbox-lat-lon.");
+                    throw new ArgumentException("Invalid hotelId format. Expected format: '{providerId}-{hotelCode}'.");
                 }
 
                 #endregion Param Validation
@@ -731,13 +729,13 @@ namespace TravelBridge.API.Endpoints
 
                 WHSingleAvailabilityRequest whReq = new()
                 {
-                    PropertyId = hotelInfo[1],
+                    PropertyId = compositeId.Value,
                     CheckIn = parsedCheckin.ToString("yyyy-MM-dd"),
                     CheckOut = parsedCheckOut.ToString("yyyy-MM-dd"),
                     Party = null
                 };
 
-                var hotelTask = webHotelierPropertiesService.GetHotelInfo(hotelInfo[1]);
+                var hotelTask = webHotelierPropertiesService.GetHotelInfo(compositeId.Value);
                 var availTask = webHotelierPropertiesService.GetHotelAvailabilityAsync(whReq, parsedCheckin, null, Selectedrates);
                 await Task.WhenAll(availTask, hotelTask);
 

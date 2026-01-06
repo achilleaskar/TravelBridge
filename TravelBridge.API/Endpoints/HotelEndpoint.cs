@@ -11,6 +11,7 @@ using TravelBridge.API.Models.WebHotelier;
 using TravelBridge.Providers.WebHotelier.Models.Responses;
 using TravelBridge.Contracts.Contracts.Responses;
 using TravelBridge.Contracts.Models.Hotels;
+using TravelBridge.Providers.Abstractions;
 
 namespace TravelBridge.API.Endpoints
 {
@@ -71,15 +72,14 @@ namespace TravelBridge.API.Endpoints
                     throw new ArgumentException("Hotel ID cannot be null or empty.", nameof(hotelId));
                 }
 
-                var hotelInfo = hotelId.Split('-');
-                if (hotelInfo.Length != 2)
+                if (!CompositeId.TryParse(hotelId, out var compositeId))
                 {
                     _logger.LogWarning("GetHotelInfo failed: Invalid hotelId format {HotelId}", hotelId);
-                    throw new ArgumentException("Invalid hotelId format. Use bbox-lat-lon.");
+                    throw new ArgumentException("Invalid hotelId format. Expected format: '{providerId}-{hotelCode}'.", nameof(hotelId));
                 }
 
-                _logger.LogDebug("Fetching hotel info from WebHotelier for property: {PropertyId}", hotelInfo[1]);
-                var res = await webHotelierPropertiesService.GetHotelInfo(hotelInfo[1]);
+                _logger.LogDebug("Fetching hotel info from WebHotelier for property: {PropertyId}", compositeId.Value);
+                var res = await webHotelierPropertiesService.GetHotelInfo(compositeId.Value);
             
                 var contractsData = res.Data?.ToContracts();
                 if (contractsData != null)
@@ -123,11 +123,10 @@ namespace TravelBridge.API.Endpoints
                     throw new ArgumentException("Hotel ID cannot be null or empty.", nameof(hotelId));
                 }
 
-                var hotelInfo = hotelId.Split('-');
-                if (hotelInfo.Length != 2)
+                if (!CompositeId.TryParse(hotelId, out var compositeId))
                 {
                     _logger.LogWarning("GetHotelFullInfo failed: Invalid hotelId format {HotelId}", hotelId);
-                    throw new ArgumentException("Invalid hotelId format. Use bbox-lat-lon.");
+                    throw new ArgumentException("Invalid hotelId format. Expected format: '{providerId}-{hotelCode}'.", nameof(hotelId));
                 }
 
                 if (!DateTime.TryParseExact(checkin, "dd/MM/yyyy", CultureInfo.InvariantCulture, DateTimeStyles.None, out var parsedCheckin))
@@ -169,14 +168,14 @@ namespace TravelBridge.API.Endpoints
 
                 WHSingleAvailabilityRequest whReq = new()
                 {
-                    PropertyId = hotelInfo[1],
+                    PropertyId = compositeId.Value,
                     CheckIn = parsedCheckin.ToString("yyyy-MM-dd"),
                     CheckOut = parsedCheckOut.ToString("yyyy-MM-dd"),
                     Party = party
                 };
 
                 var availTask = webHotelierPropertiesService.GetHotelAvailabilityAsync(whReq, parsedCheckin, reservationsRepository);
-                var hotelTask = webHotelierPropertiesService.GetHotelInfo(hotelInfo[1]);
+                var hotelTask = webHotelierPropertiesService.GetHotelInfo(compositeId.Value);
                 await Task.WhenAll(availTask, hotelTask);
 
                 SingleAvailabilityResponse? availRes = await availTask;
@@ -258,15 +257,14 @@ namespace TravelBridge.API.Endpoints
                     throw new ArgumentException("Room ID cannot be null or empty.", nameof(roomId));
                 }
 
-                var hotelInfo = hotelId.Split('-');
-                if (hotelInfo.Length != 2)
+                if (!CompositeId.TryParse(hotelId, out var compositeId))
                 {
                     _logger.LogWarning("GetRoomInfo failed: Invalid hotelId format {HotelId}", hotelId);
-                    throw new ArgumentException("Invalid hotelId format. Use bbox-lat-lon.");
+                    throw new ArgumentException("Invalid hotelId format. Expected format: '{providerId}-{hotelCode}'.", nameof(hotelId));
                 }
 
-                _logger.LogDebug("Fetching room info from WebHotelier for PropertyId: {PropertyId}, RoomId: {RoomId}", hotelInfo[1], roomId);
-                var res = await webHotelierPropertiesService.GetRoomInfo(hotelInfo[1], roomId);
+                _logger.LogDebug("Fetching room info from WebHotelier for PropertyId: {PropertyId}, RoomId: {RoomId}", compositeId.Value, roomId);
+                var res = await webHotelierPropertiesService.GetRoomInfo(compositeId.Value, roomId);
 
                 stopwatch.Stop();
                 _logger.LogInformation("GetRoomInfo completed for HotelId: {HotelId}, RoomId: {RoomId} in {ElapsedMs}ms, HasData: {HasData}", 
@@ -311,11 +309,10 @@ namespace TravelBridge.API.Endpoints
                     throw new InvalidCastException("Invalid checkout date format. Use dd/MM/yyyy.");
                 }
 
-                var hotelInfo = hotelId.Split('-');
-                if (hotelInfo.Length != 2)
+                if (!CompositeId.TryParse(hotelId, out var compositeId))
                 {
                     _logger.LogWarning("GetHotelAvailability failed: Invalid hotelId format {HotelId}", hotelId);
-                    throw new ArgumentException("Invalid hotelId format. Use bbox-lat-lon.");
+                    throw new ArgumentException("Invalid hotelId format. Expected format: '{providerId}-{hotelCode}'.", nameof(hotelId));
                 }
 
                 if (string.IsNullOrWhiteSpace(party))
@@ -345,7 +342,7 @@ namespace TravelBridge.API.Endpoints
 
                 WHSingleAvailabilityRequest whReq = new()
                 {
-                    PropertyId = hotelInfo[1],
+                    PropertyId = compositeId.Value,
                     CheckIn = parsedCheckin.ToString("yyyy-MM-dd"),
                     CheckOut = parsedCheckOut.ToString("yyyy-MM-dd"),
                     Party = party

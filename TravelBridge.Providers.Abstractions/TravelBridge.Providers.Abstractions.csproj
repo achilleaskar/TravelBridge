@@ -1,0 +1,16 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+	<PropertyGroup>
+		<TargetFramework>net9.0</TargetFramework>
+		<ImplicitUsings>enable</ImplicitUsings>
+		<Nullable>enable</Nullable>
+	</PropertyGroup>
+
+	<!-- 
+		This project must stay minimal:
+		- No FrameworkReference Microsoft.AspNetCore.App
+		- No JSON attributes, no HTTP, no EF, no DI extensions
+		- Only BCL types (System.*)
+	-->
+
+</Project>
