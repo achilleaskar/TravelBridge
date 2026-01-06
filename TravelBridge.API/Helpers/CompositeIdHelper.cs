@@ -72,5 +72,33 @@ namespace TravelBridge.API.Helpers
 
             return (bbox, latitude, longitude);
         }
+
+        /// <summary>
+        /// Parses a rate ID in the format "{rateId}-{partyInfo}".
+        /// Uses only the first dash as separator, allowing rate IDs to contain dashes.
+        /// </summary>
+        /// <param name="compositeRateId">The composite rate ID string</param>
+        /// <returns>A tuple containing (rateId, partyInfo)</returns>
+        /// <exception cref="ArgumentException">Thrown when the ID format is invalid</exception>
+        public static (string RateId, string PartyInfo) ParseRateId(string compositeRateId)
+        {
+            if (string.IsNullOrWhiteSpace(compositeRateId))
+            {
+                throw new ArgumentException("Rate ID cannot be null or empty.", nameof(compositeRateId));
+            }
+
+            int firstDashIndex = compositeRateId.IndexOf('-');
+            if (firstDashIndex <= 0 || firstDashIndex >= compositeRateId.Length - 1)
+            {
+                throw new ArgumentException(
+                    "Invalid rate ID format. Expected format: {rateId}-{partyInfo}",
+                    nameof(compositeRateId));
+            }
+
+            string rateId = compositeRateId.Substring(0, firstDashIndex);
+            string partyInfo = compositeRateId.Substring(firstDashIndex + 1);
+
+            return (rateId, partyInfo);
+        }
     }
 }

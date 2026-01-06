@@ -10,6 +10,7 @@ using Microsoft.AspNetCore.Mvc.ApplicationModels;
 using Microsoft.EntityFrameworkCore;
 using TravelBridge.API.Contracts;
 using TravelBridge.API.DataBase;
+using TravelBridge.API.Helpers;
 using TravelBridge.API.Helpers.Extensions;
 using TravelBridge.API.Models;
 using TravelBridge.API.Models.DB;
@@ -556,11 +557,12 @@ namespace TravelBridge.API.Services.WebHotelier
 
                 foreach (var rate in reservation.Rates)
                 {
+                    var (rateId, partyInfo) = CompositeIdHelper.ParseRateId(rate.RateId);
                     var parameters = new Dictionary<string, string>
                     {
                         { "checkin", reservation.CheckIn.ToString("yyyy-MM-dd")},
                         { "checkout", reservation.CheckOut.ToString("yyyy-MM-dd") },
-                        { "rate", rate.RateId.Split('-')[0].ToString() },
+                        { "rate", rateId },
                         { "price", (rate.NetPrice).ToString(CultureInfo.InvariantCulture) },
                         { "rooms", rate.Quantity.ToString() },
                         { "adults", rate.SearchParty?.Adults.ToString()??throw new InvalidDataException($"adults are required in party. party:{rate.SearchParty?.ToString()??"empty party"}") },
@@ -634,8 +636,9 @@ namespace TravelBridge.API.Services.WebHotelier
 
         private async Task<HttpResponseMessage> CreateBooking(Reservation reservation, Dictionary<string, string> parameters)
         {
+            var (providerId, hotelCode) = CompositeIdHelper.ParseHotelId(reservation.HotelCode!);
             // Build the query string from the availabilityRequest object
-            var url = $"/book/{reservation.HotelCode!.Split('-')[1]}";
+            var url = $"/book/{hotelCode}";
 
             // Serialize parameters to URL-encoded form data
             var content = new FormUrlEncodedContent(parameters);

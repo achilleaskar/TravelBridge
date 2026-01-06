@@ -283,12 +283,7 @@ namespace TravelBridge.API.Helpers
 
             internal void FillPartyFromId()
             {
-                var parts = rateId.Split('-');
-                //rateId = parts[0]; // Keep the first part as the rate ID
-                if (parts.Length < 2)
-                    throw new ArgumentException("ID does not contain party info suffix.");
-
-                var partySegment = parts.Last();
+                var (actualRateId, partySegment) = CompositeIdHelper.ParseRateId(rateId);
 
                 if (string.IsNullOrEmpty(partySegment))
                     throw new ArgumentException("Party segment must contain only digits.");
