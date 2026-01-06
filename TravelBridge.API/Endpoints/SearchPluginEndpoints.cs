@@ -151,14 +151,10 @@ namespace TravelBridge.API.Endpoints
                 throw new InvalidCastException("Invalid checkout date format. Use dd/MM/yyyy.");
             }
 
-            var location = pars.bbox.Split('-');
-            if (location.Length != 3)
-            {
-                throw new ArgumentException("Invalid bbox format. Use bbox-lat-lon.");
-            }
+            var (bbox, lat, lon) = CompositeIdHelper.ParseBBoxId(pars.bbox);
 
             string party;
-            BBox bboxO = TryGetBBox(location[0]);
+            BBox bboxO = TryGetBBox(bbox);
             if (string.IsNullOrWhiteSpace(pars.party))
             {
                 if (pars.rooms != 1)
@@ -188,8 +184,8 @@ namespace TravelBridge.API.Endpoints
                 TopRightLatitude = bboxO.TopRightLatitude,
                 BottomLeftLongitude = bboxO.BottomLeftLongitude,
                 TopRightLongitude = bboxO.TopRightLongitude,
-                Lat = location[1],
-                Lon = location[2],
+                Lat = lat,
+                Lon = lon,
                 Party = party
             };
             //TODO check sorting after merge

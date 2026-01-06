@@ -52,18 +52,9 @@ namespace TravelBridge.API.Endpoints
 
         private async Task<HotelInfoResponse> GetHotelInfo(string hotelId)
         {
-            if (string.IsNullOrWhiteSpace(hotelId))
-            {
-                throw new ArgumentException("Hotel ID cannot be null or empty.", nameof(hotelId));
-            }
+            var (providerId, actualHotelId) = CompositeIdHelper.ParseHotelId(hotelId);
 
-            var hotelInfo = hotelId.Split('-');
-            if (hotelInfo.Length != 2)
-            {
-                throw new ArgumentException("Invalid hotelId format. Use bbox-lat-lon.");
-            }
-
-            var res = await webHotelierPropertiesService.GetHotelInfo(hotelInfo[1]);
+            var res = await webHotelierPropertiesService.GetHotelInfo(actualHotelId);
             res.Data.Provider = Models.Provider.WebHotelier;
             return res;
         }
@@ -72,16 +63,7 @@ namespace TravelBridge.API.Endpoints
         {
             #region Params Validation
 
-            if (string.IsNullOrWhiteSpace(hotelId))
-            {
-                throw new ArgumentException("Hotel ID cannot be null or empty.", nameof(hotelId));
-            }
-
-            var hotelInfo = hotelId.Split('-');
-            if (hotelInfo.Length != 2)
-            {
-                throw new ArgumentException("Invalid hotelId format. Use bbox-lat-lon.");
-            }
+            var (providerId, actualHotelId) = CompositeIdHelper.ParseHotelId(hotelId);
 
             if (!DateTime.TryParseExact(checkin, "dd/MM/yyyy", CultureInfo.InvariantCulture, DateTimeStyles.None, out var parsedCheckin))
             {
@@ -119,11 +101,11 @@ namespace TravelBridge.API.Endpoints
                 CheckIn = parsedCheckin.ToString("yyyy-MM-dd"),
                 CheckOut = parsedCheckOut.ToString("yyyy-MM-dd"),
                 Party = party,
-                PropertyId = hotelInfo[1]
+                PropertyId = actualHotelId
             };
 
             var availTask = webHotelierPropertiesService.GetHotelAvailabilityAsync(availReq, parsedCheckin,reservationsRepository);
-            var hotelTask = webHotelierPropertiesService.GetHotelInfo(hotelInfo[1]);
+            var hotelTask = webHotelierPropertiesService.GetHotelInfo(actualHotelId);
             Task.WaitAll(availTask, hotelTask);
 
             SingleAvailabilityResponse? availRes = await availTask;
@@ -176,23 +158,14 @@ namespace TravelBridge.API.Endpoints
 
         private async Task<RoomInfoRespone> GetRoomInfo(string hotelId, string roomId)
         {
-            if (string.IsNullOrWhiteSpace(hotelId))
-            {
-                throw new ArgumentException("Hotel ID cannot be null or empty.", nameof(hotelId));
-            }
-
             if (string.IsNullOrWhiteSpace(roomId))
             {
                 throw new ArgumentException("Room ID cannot be null or empty.", nameof(roomId));
             }
 
-            var hotelInfo = hotelId.Split('-');
-            if (hotelInfo.Length != 2)
-            {
-                throw new ArgumentException("Invalid hotelId format. Use bbox-lat-lon.");
-            }
+            var (providerId, actualHotelId) = CompositeIdHelper.ParseHotelId(hotelId);
 
-            var res = await webHotelierPropertiesService.GetRoomInfo(hotelInfo[1], roomId);
+            var res = await webHotelierPropertiesService.GetRoomInfo(actualHotelId, roomId);
             return res;
         }
 
@@ -210,11 +183,7 @@ namespace TravelBridge.API.Endpoints
                 throw new InvalidCastException("Invalid checkout date format. Use dd/MM/yyyy.");
             }
 
-            var hotelInfo = hotelId.Split('-');
-            if (hotelInfo.Length != 2)
-            {
-                throw new ArgumentException("Invalid hotelId format. Use bbox-lat-lon.");
-            }
+            var (providerId, actualHotelId) = CompositeIdHelper.ParseHotelId(hotelId);
 
             if (string.IsNullOrWhiteSpace(party))
             {
@@ -242,7 +211,7 @@ namespace TravelBridge.API.Endpoints
                 CheckIn = parsedCheckin.ToString("yyyy-MM-dd"),
                 CheckOut = parsedCheckOut.ToString("yyyy-MM-dd"),
                 Party = party,
-                PropertyId = hotelInfo[1]
+                PropertyId = actualHotelId
             };
 
             var res = await webHotelierPropertiesService.GetHotelAvailabilityAsync(req, parsedCheckin, reservationsRepository);
