@@ -1,0 +1,22 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>net9.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <RootNamespace>TravelBridge.Providers.Abstractions</RootNamespace>
+  </PropertyGroup>
+
+  <!-- 
+    IMPORTANT: This project must have ZERO external dependencies.
+    It contains only:
+    - Provider interfaces (IHotelProvider)
+    - Internal query/result models
+    - Value objects (CompositeHotelId)
+    - Resolver
+    
+    This allows TravelBridge.Providers.WebHotelier to reference this project
+    without inheriting any dependencies from Application or Contracts.
+  -->
+
+</Project>

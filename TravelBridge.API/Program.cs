@@ -15,6 +15,7 @@ using TravelBridge.Payments.Viva.Models.Apis;
 using TravelBridge.Payments.Viva.Services.Viva;
 using TravelBridge.API.Models.WebHotelier;
 using TravelBridge.Providers.WebHotelier;
+using TravelBridge.Providers.Abstractions;
 using TravelBridge.API.Models.Apis;
 
 var builder = WebApplication.CreateSlimBuilder(args);
@@ -92,6 +93,9 @@ builder.Services
 builder.Services.AddHereMaps(builder.Configuration);
 builder.Services.AddMapBox(builder.Configuration);
 builder.Services.AddWebHotelier(builder.Configuration);
+
+// Register HotelProviderResolver - uses IEnumerable<IHotelProvider> to discover all providers
+builder.Services.AddScoped<HotelProviderResolver>();
 
 // Bind Viva section to VivaApiOptions
 builder.Services.Configure<VivaApiOptions>(builder.Configuration.GetSection("VivaApi"));

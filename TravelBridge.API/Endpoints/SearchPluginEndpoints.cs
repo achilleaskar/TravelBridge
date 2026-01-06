@@ -9,19 +9,32 @@ using TravelBridge.Geo.Mapbox;
 using TravelBridge.Contracts.Plugin.AutoComplete;
 using TravelBridge.Contracts.Plugin.Filters;
 using TravelBridge.Providers.WebHotelier;
+using TravelBridge.Providers.Abstractions;
 using TravelBridge.API.Models.WebHotelier;
 
 namespace TravelBridge.API.Endpoints
 {
+    /// <summary>
+    /// Plugin endpoints for search, autocomplete, and property listing.
+    /// 
+    /// Phase 1: Uses WebHotelierPropertiesService directly.
+    /// Phase 3: Will use IHotelProvider via HotelProviderResolver to search across all providers.
+    /// </summary>
     public class SearchPluginEndpoints
     {
         private readonly WebHotelierPropertiesService webHotelierPropertiesService;
+        private readonly HotelProviderResolver _providerResolver;
         private readonly MapBoxService mapBoxService;
         private readonly ILogger<SearchPluginEndpoints> logger;
 
-        public SearchPluginEndpoints(WebHotelierPropertiesService webHotelierPropertiesService, MapBoxService mapBoxService, ILogger<SearchPluginEndpoints> logger)
+        public SearchPluginEndpoints(
+            WebHotelierPropertiesService webHotelierPropertiesService, 
+            HotelProviderResolver providerResolver,
+            MapBoxService mapBoxService, 
+            ILogger<SearchPluginEndpoints> logger)
         {
             this.webHotelierPropertiesService = webHotelierPropertiesService;
+            _providerResolver = providerResolver;
             this.mapBoxService = mapBoxService;
             this.logger = logger;
         }

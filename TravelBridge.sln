@@ -24,6 +24,10 @@ Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "TravelBridge.Contracts", "T
 EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "TravelBridge.Tests", "TravelBridge.Tests\TravelBridge.Tests.csproj", "{4F339183-04FC-7D1B-7729-AE7284D0C970}"
 EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "TravelBridge.Providers.Abstractions", "TravelBridge.Providers.Abstractions\TravelBridge.Providers.Abstractions.csproj", "{FBBC03CE-DB3A-4356-BF85-2E098CEC5111}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "TravelBridge.Tests.Unit", "TravelBridge.Tests.Unit\TravelBridge.Tests.Unit.csproj", "{FFA8514A-FD00-4730-A1EE-D44E39E21EF7}"
+EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
 		Debug|Any CPU = Debug|Any CPU
@@ -130,6 +134,30 @@ Global
 		{4F339183-04FC-7D1B-7729-AE7284D0C970}.Release|x64.Build.0 = Release|Any CPU
 		{4F339183-04FC-7D1B-7729-AE7284D0C970}.Release|x86.ActiveCfg = Release|Any CPU
 		{4F339183-04FC-7D1B-7729-AE7284D0C970}.Release|x86.Build.0 = Release|Any CPU
+		{FBBC03CE-DB3A-4356-BF85-2E098CEC5111}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{FBBC03CE-DB3A-4356-BF85-2E098CEC5111}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{FBBC03CE-DB3A-4356-BF85-2E098CEC5111}.Debug|x64.ActiveCfg = Debug|Any CPU
+		{FBBC03CE-DB3A-4356-BF85-2E098CEC5111}.Debug|x64.Build.0 = Debug|Any CPU
+		{FBBC03CE-DB3A-4356-BF85-2E098CEC5111}.Debug|x86.ActiveCfg = Debug|Any CPU
+		{FBBC03CE-DB3A-4356-BF85-2E098CEC5111}.Debug|x86.Build.0 = Debug|Any CPU
+		{FBBC03CE-DB3A-4356-BF85-2E098CEC5111}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{FBBC03CE-DB3A-4356-BF85-2E098CEC5111}.Release|Any CPU.Build.0 = Release|Any CPU
+		{FBBC03CE-DB3A-4356-BF85-2E098CEC5111}.Release|x64.ActiveCfg = Release|Any CPU
+		{FBBC03CE-DB3A-4356-BF85-2E098CEC5111}.Release|x64.Build.0 = Release|Any CPU
+		{FBBC03CE-DB3A-4356-BF85-2E098CEC5111}.Release|x86.ActiveCfg = Release|Any CPU
+		{FBBC03CE-DB3A-4356-BF85-2E098CEC5111}.Release|x86.Build.0 = Release|Any CPU
+		{FFA8514A-FD00-4730-A1EE-D44E39E21EF7}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{FFA8514A-FD00-4730-A1EE-D44E39E21EF7}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{FFA8514A-FD00-4730-A1EE-D44E39E21EF7}.Debug|x64.ActiveCfg = Debug|Any CPU
+		{FFA8514A-FD00-4730-A1EE-D44E39E21EF7}.Debug|x64.Build.0 = Debug|Any CPU
+		{FFA8514A-FD00-4730-A1EE-D44E39E21EF7}.Debug|x86.ActiveCfg = Debug|Any CPU
+		{FFA8514A-FD00-4730-A1EE-D44E39E21EF7}.Debug|x86.Build.0 = Debug|Any CPU
+		{FFA8514A-FD00-4730-A1EE-D44E39E21EF7}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{FFA8514A-FD00-4730-A1EE-D44E39E21EF7}.Release|Any CPU.Build.0 = Release|Any CPU
+		{FFA8514A-FD00-4730-A1EE-D44E39E21EF7}.Release|x64.ActiveCfg = Release|Any CPU
+		{FFA8514A-FD00-4730-A1EE-D44E39E21EF7}.Release|x64.Build.0 = Release|Any CPU
+		{FFA8514A-FD00-4730-A1EE-D44E39E21EF7}.Release|x86.ActiveCfg = Release|Any CPU
+		{FFA8514A-FD00-4730-A1EE-D44E39E21EF7}.Release|x86.Build.0 = Release|Any CPU
 	EndGlobalSection
 	GlobalSection(SolutionProperties) = preSolution
 		HideSolutionNode = FALSE

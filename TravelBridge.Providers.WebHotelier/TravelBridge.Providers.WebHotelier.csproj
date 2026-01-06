@@ -10,4 +10,13 @@
 		<FrameworkReference Include="Microsoft.AspNetCore.App" />
 	</ItemGroup>
 
+	<!-- 
+		IMPORTANT: This project references only Abstractions.
+		It must NOT reference TravelBridge.Contracts to maintain clean boundaries.
+		The API layer handles mapping between Contracts and Abstractions types.
+	-->
+	<ItemGroup>
+		<ProjectReference Include="..\TravelBridge.Providers.Abstractions\TravelBridge.Providers.Abstractions.csproj" />
+	</ItemGroup>
+
 </Project>
