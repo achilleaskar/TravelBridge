@@ -3,6 +3,7 @@ using System;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
 using Microsoft.EntityFrameworkCore.Metadata;
+using Microsoft.EntityFrameworkCore.Migrations;
 using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 using TravelBridge.API.DataBase;
 
@@ -11,9 +12,11 @@ using TravelBridge.API.DataBase;
 namespace TravelBridge.API.Migrations
 {
     [DbContext(typeof(AppDbContext))]
-    partial class AppDbContextModelSnapshot : ModelSnapshot
+    [Migration("20260107174440_AddOwnedInventoryTables")]
+    partial class AddOwnedInventoryTables
     {
-        protected override void BuildModel(ModelBuilder modelBuilder)
+        /// <inheritdoc />
+        protected override void BuildTargetModel(ModelBuilder modelBuilder)
         {
 #pragma warning disable 612, 618
             modelBuilder
@@ -225,7 +228,7 @@ namespace TravelBridge.API.Migrations
                         .HasColumnType("int");
 
                     b.Property<DateOnly>("Date")
-                        .HasColumnType("DATE");
+                        .HasColumnType("date");
 
                     b.Property<int>("ClosedUnits")
                         .HasColumnType("int");
@@ -237,7 +240,7 @@ namespace TravelBridge.API.Migrations
                         .HasColumnType("int");
 
                     b.Property<DateTime?>("LastModifiedUtc")
-                        .HasColumnType("DATETIME(6)");
+                        .HasColumnType("datetime(6)");
 
                     b.Property<decimal?>("PricePerNight")
                         .HasColumnType("DECIMAL(10,2)");
@@ -277,9 +280,6 @@ namespace TravelBridge.API.Migrations
                         .ValueGeneratedOnAdd()
                         .HasColumnType("datetime(6)")
                         .HasDefaultValueSql("CURRENT_TIMESTAMP");
-
-                    b.Property<int>("DefaultTotalUnits")
-                        .HasColumnType("int");
 
                     b.Property<string>("Description")
                         .HasColumnType("TEXT");

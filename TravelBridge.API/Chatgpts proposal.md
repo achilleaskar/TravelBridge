@@ -1,61 +1,128 @@
-# TravelBridge Phase 2 – Final Code Review (static)
+✅ Great — and **yes**, that is exactly the right fix to apply.
+That validation is **critical** because a capacity decrease is the *one* admin action that can silently create invalid rows unless we proactively guard it.
 
-This review is based on **static inspection** of the code inside `TravelBridge.zip`.
+---
 
-> I **cannot run** `dotnet test` / build here because this environment doesn’t include the .NET SDK. I validated the implementation by reading the code paths and comparing them with the `TravelBridge-PROD` reference folder included in the zip.
+# ✅ What I confirmed in your current snapshot
 
-## ✅ What matches the Phase 2 goals
+In your **Phase 3 current** codebase, `UpdateInventoryClosedUnitsAsync` already does:
 
-### 1) Availability endpoint now uses the provider layer
-- `TravelBridge.API/Endpoints/HotelEndpoint.cs` calls `IAvailabilityService` for `/hotelRoomAvailability`.
-- `TravelBridge.API/Services/AvailabilityService.cs` resolves the provider and calls:
-  - `provider.GetHotelAvailabilityAsync(query)`
-  - and, when no rates exist, `provider.GetAlternativesAsync(alternativesQuery)`
+* Ensures rows exist
+* Loads affected rows
+* Validates that:
 
-This achieves the intended flow:
-`Endpoint → AvailabilityService → IHotelProvider → MapToResponse (pricing/coupons) → SingleAvailabilityResponse`
+  * `closedUnits <= TotalUnits`
+  * `closedUnits + held + confirmed <= TotalUnits`
 
-### 2) WebHotelier provider implements provider-neutral availability + alternatives
-- `TravelBridge.Providers.WebHotelier/WebHotelierHotelProvider.cs`
-  - `GetHotelAvailabilityAsync()` builds provider-neutral `HotelAvailabilityResult` with rooms/rates populated.
-  - `GetAlternativesAsync()` calls flexible calendar, computes alternative windows, then intersects common dates across party configs.
+…but **`UpdateInventoryCapacityAsync` still did NOT**, which means a capacity reduction could violate constraints.
 
-### 3) Alternatives behavior parity is restored
-- `AvailabilityService` triggers alternatives only when there are no rates (`Rooms.Any(r => r.Rates.Count > 0)` is false).
-- Provider-side alternatives logic mirrors the old “keep only common date pairs across parties” approach.
+So your added validation block is correct and consistent with your existing pattern.
 
-### 4) RoomsCount weighting for alternatives is in place
-In `WebHotelierHotelProvider.GetAlternativesAsync`, alternatives are multiplied by `RoomsCount` before intersection (so 2 identical rooms are priced as 2×).
+---
 
-### 5) Location.Name is mapped in the final response
-In `TravelBridge.API/Helpers/Extensions/MappingExtensions.cs`, `MapToResponse(HotelAvailabilityResult ...)` includes:
-`Location.Name = result.Data.Location.Name`.
+# ✅ Why this fix matters (and you nailed it)
 
-## ⚠️ Things to double-check / minor risks
+Even if your schema has CHECK constraints, MySQL/MariaDB **may not enforce them reliably** depending on version/settings.
 
-### A) RateId party suffix assumes single-digit adults (existing limitation)
-Your existing `FillPartyFromId()` logic (in `TravelBridge.API/Helpers/General.cs`) reads **only the first digit** as adults.
-So a suffix like `-10_5` would be interpreted incorrectly.
-This isn’t introduced by Phase 2, but the current RateId format still depends on that assumption.
+So code-layer validation ensures:
 
-**If adults > 9 is even remotely possible**, update `FillPartyFromId()` to parse the full adults segment (up to the first `_`).
+✅ You can safely reduce capacity
+✅ You won’t create bad inventory rows
+✅ Future Phase 4 (holds + confirmed units) won’t break when totals are adjusted
 
-### B) `ProviderToContractsMapper.ToSingleHotelAvailabilityInfo()` still drops `Location.Name`
-`MappingExtensions.MapToResponse()` is correct (it includes `Location.Name`), but `ProviderToContractsMapper.ToSingleHotelAvailabilityInfo()` maps only lat/long.
-If someone reuses `ToSingleHotelAvailabilityInfo()` later, the name will be missing.
+---
 
-### C) Unit tests are mostly algorithmic (not “wiring” tests)
-The added tests mostly validate formatting/intersection logic with in-memory data, but they don’t strongly verify:
-- that `AvailabilityService` actually calls `GetAlternativesAsync()` on the provider (via a mock),
-- or that `GetHotelAvailabilityAsync()` end-to-end produces the expected response shape.
+# 📌 Current status after this fix (accurate)
 
-If you want extra safety, add a small test using a mocking framework (e.g., Moq) to assert provider method calls.
+✅ Steps 1–5 foundation: DB schema + EF models + repository + abstraction
+✅ Both admin inventory update methods now follow the same validation approach
+✅ You’re ready to begin **Steps 6–12** (Owned provider project + provider implementation + DI + admin endpoints + seed service + tests)
 
-## Quick checklist
+---
 
-- Provider-layer availability call: ✅
-- Alternatives call on “no rates”: ✅
-- Alternatives intersection logic: ✅
-- RoomsCount weighting for alternatives: ✅
-- Location.Name mapped in availability response: ✅
-- Potential adult parsing edge-case: ⚠️ (pre-existing)
+# 🚧 What I started doing (but didn’t complete yet)
+
+Since you asked whether to proceed, I **began implementing Step 6**:
+
+* I created the folder for `TravelBridge.Providers.Owned`
+* I created `TravelBridge.Providers.Owned.csproj`
+* I added `GlobalUsings.cs`
+* I *began* creating `OwnedPartyHelpers.cs`
+
+⚠️ But I didn’t finish Step 6 or Step 7 yet — I ran out of tool-time while writing the helper file.
+
+So at this moment:
+
+✅ The Owned provider project structure has started
+❌ The helper file is incomplete
+❌ `OwnedHotelProvider` is not implemented yet
+❌ DI wiring / admin endpoints / seed hosted service / tests not yet done
+
+---
+
+# ✅ Best Next Move (Recommended)
+
+### ✅ Option 1: Start executing Steps 6–12 (recommended)
+
+This is the best move now that your schema layer is solid and validated.
+
+I would proceed in this order:
+
+### Step 6 → Step 7 First (build provider end-to-end)
+
+1. Finalize `TravelBridge.Providers.Owned` project
+2. Implement `OwnedHotelProvider : IHotelProvider`
+
+   * `GetHotelAvailabilityAsync` first (most important)
+   * then HotelInfo, RoomInfo
+   * then Alternatives + Search MVP
+3. Register provider + store in DI (`Program.cs`)
+
+Then:
+
+### Step 8–9
+
+4. Add admin endpoints for capacity/closed/read inventory
+5. Add hosted seed service for rolling inventory window
+
+Then:
+
+### Step 10–12
+
+6. Seed dev data SQL
+7. Add basic tests for:
+
+   * party grouping
+   * `[checkIn, checkOut)` range behavior
+   * RateId format compatibility
+
+---
+
+# ✅ Confirming before I continue
+
+You don’t need to clarify anything — but I want to confirm **one preference**:
+
+### For Owned hotel composite IDs, should we treat Value as:
+
+✅ **Hotel.Code** (ex: `0-OWNTEST01`) — matches your model comments
+or
+✅ **Hotel.Id** (ex: `0-12`) — easier numeric routing
+
+I can support **both** safely (numeric parse → ID, else → Code), which is what I planned for robustness.
+
+---
+
+# ✅ Ready when you are
+
+If you say **“Proceed”**, I will:
+
+✅ Finish Step 6
+✅ Implement Step 7 (`OwnedHotelProvider`)
+✅ Wire DI
+✅ Add admin endpoints + seed hosted service
+✅ Add tests
+✅ Package the updated repo into a ready zip/patch
+
+Just tell me:
+
+👉 **Proceed with Steps 6–12**, and whether you prefer Code-only IDs or hybrid (code + numeric).
