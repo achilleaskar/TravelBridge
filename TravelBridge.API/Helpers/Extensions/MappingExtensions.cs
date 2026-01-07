@@ -5,6 +5,9 @@ using TravelBridge.Contracts.Common.Board;
 using TravelBridge.Providers.WebHotelier.Models.Responses;
 using TravelBridge.API.Contracts.DTOs;
 using TravelBridge.Contracts.Models.Hotels;
+using TravelBridge.Contracts.Common;
+using TravelBridge.Providers.Abstractions.Models;
+using TravelBridge.API.Providers;
 
 namespace TravelBridge.API.Helpers.Extensions
 {
@@ -144,6 +147,108 @@ namespace TravelBridge.API.Helpers.Extensions
                         }).ToList()
                     }).ToList(),
                     Alternatives = data.Alternatives.ToContracts().GetFinalPrice(disc, data.Data.Code, couponType)
+                }
+            };
+        }
+
+        /// <summary>
+        /// Maps HotelAvailabilityResult to SingleAvailabilityResponse using provider-neutral types.
+        /// Reuses existing pricing logic (GetTotalPrice, GetSalePrice, etc.).
+        /// </summary>
+        public static SingleAvailabilityResponse MapToResponse(
+            this HotelAvailabilityResult result, 
+            DateTime checkin, 
+            decimal disc, 
+            CouponType couponType,
+            int providerId)
+        {
+            if (!result.IsSuccess || result.Data == null)
+            {
+                return new SingleAvailabilityResponse
+                {
+                    ErrorCode = result.ErrorCode ?? "Error",
+                    ErrorMessage = result.ErrorMessage ?? "No data available",
+                    Data = new SingleHotelAvailabilityInfo { Rooms = [] }
+                };
+            }
+
+            // Convert provider rates to contract HotelRate for pricing logic
+            var contractsRates = ProviderToContractsMapper.ToHotelRates(result);
+
+            // Apply cancellation expiry fix (same as WH mapper)
+            foreach (var rate in contractsRates)
+            {
+                if (rate.CancellationExpiry?.Date <= DateTime.Now.AddHours(3).Date)
+                {
+                    rate.CancellationExpiry = null;
+                }
+            }
+
+            var hotelCode = result.Data.HotelCode;
+
+            return new SingleAvailabilityResponse
+            {
+                HttpCode = 200,
+                ErrorCode = null,
+                ErrorMessage = null,
+                CouponDiscount = disc == 0m ? null : (couponType == CouponType.percentage ? ($"-{(int)(disc * 100)} %") : $"-{disc} €"),
+                CouponValid = disc != 0m,
+                Data = new SingleHotelAvailabilityInfo
+                {
+                    Code = result.Data.HotelCode,
+                    Name = result.Data.HotelName ?? "",
+                    Location = result.Data.Location != null ? new Location
+                    {
+                        Latitude = result.Data.Location.Latitude,
+                        Longitude = result.Data.Location.Longitude,
+                        Name = result.Data.Location.Name
+                    } : null,
+                    Provider = providerId == TravelBridge.Providers.Abstractions.ProviderIds.WebHotelier 
+                        ? Provider.WebHotelier 
+                        : Provider.WebHotelier, // Only WH supported for now
+                    Rooms = contractsRates.GroupBy(r => r.Type).Select(r => new SingleHotelRoom
+                    {
+                        Type = r.Key,
+                        RoomName = r.First().RoomName,
+                        RatesCount = r.Count(),
+                        Rates = r.Select(rate => new SingleHotelRate
+                        {
+                            TotalPrice = rate.GetTotalPrice(hotelCode, disc, couponType),
+                            SalePrice = rate.GetSalePrice(),
+                            NetPrice = rate.Pricing?.TotalPrice ?? 0,
+                            Id = rate.Id ?? "",
+                            SearchParty = rate.SearchParty,
+                            RateProperties = new RateProperties
+                            {
+                                RateName = rate.RateName,
+                                Board = rate.BoardType?.MapBoardType(Language.el) ?? "Χωρίς διατροφή",
+                                CancellationExpiry = rate.CancellationExpiry?.ToString("dd/MM/yyyy HH:mm"),
+                                CancellationName = rate.CancellationExpiry == null ? "Χωρίς δωρεάν ακύρωση" : "Δωρεάν ακύρωση",
+                                CancellationPenalty = rate.CancellationPenalty,
+                                CancellationPolicy = rate.CancellationPolicy,
+                                CancellationFeesOr = rate.CancellationFees,
+                                PaymentsOr = rate.Payments?.Select(a => new PaymentWH { Amount = a.Amount, DueDate = a.DueDate }).ToList() ?? new List<PaymentWH>(),
+                                CancellationFees = (rate.CancellationFees?.ToList() ?? []).MapToList(checkin, rate),
+                                Payments = rate.Payments ?? new List<PaymentWH>(),
+                                PartialPayment = rate.CancellationExpiry != null ? General.FillPartialPayment(rate.Payments, checkin) : null,
+                                HasCancellation = rate.CancellationExpiry != null,
+                                HasBoard = !General.NoboardIds.Contains(rate.BoardType ?? 0)
+                            },
+                            RateDescription = rate.RateDescription,
+                            Retail = rate.Retail,
+                            Pricing = rate.Pricing,
+                            BoardType = rate.BoardType,
+                            RemainingRooms = rate.RemainingRooms
+                        }).ToList()
+                    }).ToList(),
+                    Alternatives = result.Data.Alternatives.Select(a => new Alternative
+                    {
+                        CheckIn = a.CheckIn.ToDateTime(TimeOnly.MinValue),
+                        Checkout = a.CheckOut.ToDateTime(TimeOnly.MinValue),
+                        Nights = a.Nights,
+                        MinPrice = a.MinPrice,
+                        NetPrice = a.NetPrice
+                    }).ToList().GetFinalPrice(disc, hotelCode, couponType)
                 }
             };
         }

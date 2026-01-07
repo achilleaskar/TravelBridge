@@ -31,10 +31,26 @@ public interface IHotelProvider
     Task<RoomInfoResult> GetRoomInfoAsync(RoomInfoQuery query, CancellationToken cancellationToken = default);
 
     /// <summary>
-    /// Gets hotel availability for the specified dates and party.
+    /// Gets hotel availability for the specified dates and party (single hotel).
     /// </summary>
     /// <param name="query">The availability query.</param>
     /// <param name="cancellationToken">Cancellation token.</param>
     /// <returns>The availability result.</returns>
     Task<HotelAvailabilityResult> GetHotelAvailabilityAsync(HotelAvailabilityQuery query, CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Searches for available hotels in a geographic area (multi-hotel search).
+    /// </summary>
+    /// <param name="query">The search query with bounding box, dates, and party.</param>
+    /// <param name="cancellationToken">Cancellation token.</param>
+    /// <returns>The search result with available hotels.</returns>
+    Task<SearchAvailabilityResult> SearchAvailabilityAsync(SearchAvailabilityQuery query, CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Gets alternative available dates for a hotel when the requested dates have no availability.
+    /// </summary>
+    /// <param name="query">The alternatives query.</param>
+    /// <param name="cancellationToken">Cancellation token.</param>
+    /// <returns>The alternatives result with suggested dates.</returns>
+    Task<AlternativesResult> GetAlternativesAsync(AlternativesQuery query, CancellationToken cancellationToken = default);
 }

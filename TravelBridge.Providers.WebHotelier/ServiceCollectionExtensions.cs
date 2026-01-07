@@ -6,6 +6,7 @@ using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 using Polly;
 using Polly.Extensions.Http;
+using TravelBridge.Providers.Abstractions;
 
 namespace TravelBridge.Providers.WebHotelier;
 
@@ -28,6 +29,9 @@ public static class ServiceCollectionExtensions
         .AddPolicyHandler((sp, _) => GetRetryPolicy(sp, "WebHotelierApi"));
 
         services.AddScoped<WebHotelierClient>();
+        
+        // Register the WebHotelier provider implementation
+        services.AddScoped<IHotelProvider, WebHotelierHotelProvider>();
 
         return services;
     }

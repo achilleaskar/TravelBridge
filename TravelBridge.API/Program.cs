@@ -10,6 +10,7 @@ using Serilog;
 using Serilog.Events;
 using TravelBridge.API.DataBase;
 using TravelBridge.API.Endpoints;
+using TravelBridge.API.Providers;
 using TravelBridge.API.Repositories;
 using TravelBridge.API.Services;
 using TravelBridge.Geo.Mapbox;
@@ -17,6 +18,7 @@ using TravelBridge.Geo.HereMaps;
 using TravelBridge.Payments.Viva.Models.Apis;
 using TravelBridge.Payments.Viva.Services.Viva;
 using TravelBridge.API.Models.WebHotelier;
+using TravelBridge.Providers.Abstractions;
 using TravelBridge.Providers.WebHotelier;
 using TravelBridge.API.Models.Apis;
 
@@ -131,6 +133,9 @@ builder.Services.AddHereMaps(builder.Configuration);
 builder.Services.AddMapBox(builder.Configuration);
 builder.Services.AddWebHotelier(builder.Configuration);
 
+// Register the provider resolver (resolves providers by ID)
+builder.Services.AddScoped<IHotelProviderResolver, HotelProviderResolver>();
+
 // Bind Viva section to VivaApiOptions
 builder.Services.Configure<VivaApiOptions>(builder.Configuration.GetSection("VivaApi"));
 
@@ -164,6 +169,7 @@ builder.Services.AddHttpClient("VivaApi", (sp, client) =>
 #endregion HttpClients
 builder.Services.AddSingleton<SmtpEmailSender, SmtpEmailSender>();
 builder.Services.AddScoped<WebHotelierPropertiesService>();
+builder.Services.AddScoped<IAvailabilityService, AvailabilityService>();
 builder.Services.AddScoped<SearchPluginEndpoints>();
 builder.Services.AddScoped<HotelEndpoint>();
 builder.Services.AddScoped<ReservationEndpoints>();

@@ -287,11 +287,14 @@ namespace TravelBridge.API.Helpers
                 if (string.IsNullOrEmpty(partySegment))
                     throw new ArgumentException("Party segment must contain only digits.");
 
-                // First digit is adults
-                adults = partySegment[0] - '0';
-
                 var segments = partySegment.Split('_');
-                // Remaining digits are children
+                
+                // First segment is adults (supports multi-digit)
+                if (!int.TryParse(segments[0], out var parsedAdults))
+                    throw new ArgumentException("Invalid adults value in party segment.");
+                adults = parsedAdults;
+
+                // Remaining segments are children ages
                 var childrenAges = segments.Length > 1
                         ? segments.Skip(1).Select(int.Parse).ToArray()
                         : Array.Empty<int>();

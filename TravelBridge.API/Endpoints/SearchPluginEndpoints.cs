@@ -5,9 +5,12 @@ using Microsoft.OpenApi.Models;
 using TravelBridge.API.Contracts;
 using TravelBridge.API.Helpers;
 using TravelBridge.API.Helpers.Extensions;
+using TravelBridge.API.Providers;
 using TravelBridge.Geo.Mapbox;
 using TravelBridge.Contracts.Plugin.AutoComplete;
 using TravelBridge.Contracts.Plugin.Filters;
+using TravelBridge.Providers.Abstractions;
+using TravelBridge.Providers.Abstractions.Models;
 using TravelBridge.Providers.WebHotelier;
 using TravelBridge.API.Models.WebHotelier;
 
@@ -16,12 +19,18 @@ namespace TravelBridge.API.Endpoints
     public class SearchPluginEndpoints
     {
         private readonly WebHotelierPropertiesService webHotelierPropertiesService;
+        private readonly IHotelProviderResolver providerResolver;
         private readonly MapBoxService mapBoxService;
         private readonly ILogger<SearchPluginEndpoints> logger;
 
-        public SearchPluginEndpoints(WebHotelierPropertiesService webHotelierPropertiesService, MapBoxService mapBoxService, ILogger<SearchPluginEndpoints> logger)
+        public SearchPluginEndpoints(
+            WebHotelierPropertiesService webHotelierPropertiesService, 
+            IHotelProviderResolver providerResolver,
+            MapBoxService mapBoxService, 
+            ILogger<SearchPluginEndpoints> logger)
         {
             this.webHotelierPropertiesService = webHotelierPropertiesService;
+            this.providerResolver = providerResolver;
             this.mapBoxService = mapBoxService;
             this.logger = logger;
         }
@@ -211,51 +220,47 @@ namespace TravelBridge.API.Endpoints
 
                 #endregion Param Validation
 
-                logger.LogDebug("GetSearchResults: Params validated, fetching availability from WebHotelier");
-
-                MultiAvailabilityRequest req = new()
+                // Resolve provider (currently only WebHotelier = 1)
+                // In the future, provider ID could come from request or be determined by business logic
+                const int providerId = ProviderIds.WebHotelier;
+                if (!providerResolver.TryGet(providerId, out var provider))
                 {
-                    CheckIn = parsedCheckin.ToString("yyyy-MM-dd"),
-                    CheckOut = parsedCheckOut.ToString("yyyy-MM-dd"),
-                    BottomLeftLatitude = bboxO.BottomLeftLatitude,
-                    TopRightLatitude = bboxO.TopRightLatitude,
-                    BottomLeftLongitude = bboxO.BottomLeftLongitude,
-                    TopRightLongitude = bboxO.TopRightLongitude,
-                    Lat = location[1],
-                    Lon = location[2],
-                    Party = party
-                };
+                    logger.LogWarning("GetSearchResults failed: Provider {ProviderId} not supported", providerId);
+                    throw new InvalidOperationException($"Hotel provider '{providerId}' is not supported.");
+                }
 
-                HandleSorting(pars.sorting, req);
+                logger.LogDebug("GetSearchResults: Params validated, fetching availability via provider {ProviderId}", providerId);
 
-                int skip = (pars.page ?? 0) * 20;
-
-                WHAvailabilityRequest whReq = new()
+                // Build provider-neutral query
+                var partyConfig = ProviderToContractsMapper.ParsePartyConfiguration(party);
+                var searchQuery = new SearchAvailabilityQuery
                 {
-                    CheckIn = req.CheckIn,
-                    CheckOut = req.CheckOut,
-                    Party = req.Party,
-                    Lat = req.Lat,
-                    Lon = req.Lon,
-                    BottomLeftLatitude = req.BottomLeftLatitude,
-                    TopRightLatitude = req.TopRightLatitude,
-                    BottomLeftLongitude = req.BottomLeftLongitude,
-                    TopRightLongitude = req.TopRightLongitude,
-                    SortBy = req.SortBy,
-                    SortOrder = req.SortOrder
-                };
-
-                var res = await webHotelierPropertiesService.GetAvailabilityAsync(whReq)
-                    ?? new PluginSearchResponse
+                    CheckIn = DateOnly.FromDateTime(parsedCheckin),
+                    CheckOut = DateOnly.FromDateTime(parsedCheckOut),
+                    Party = partyConfig,
+                    BoundingBox = new BoundingBox
                     {
-                        Results = new List<WebHotel>(),
-                        Filters = new(),
-                    };
+                        BottomLeftLatitude = double.Parse(bboxO.BottomLeftLatitude, CultureInfo.InvariantCulture),
+                        TopRightLatitude = double.Parse(bboxO.TopRightLatitude, CultureInfo.InvariantCulture),
+                        BottomLeftLongitude = double.Parse(bboxO.BottomLeftLongitude, CultureInfo.InvariantCulture),
+                        TopRightLongitude = double.Parse(bboxO.TopRightLongitude, CultureInfo.InvariantCulture)
+                    },
+                    CenterLatitude = double.Parse(location[1], CultureInfo.InvariantCulture),
+                    CenterLongitude = double.Parse(location[2], CultureInfo.InvariantCulture),
+                    SortBy = GetSortBy(pars.sorting),
+                    SortOrder = GetSortOrder(pars.sorting)
+                };
 
-                logger.LogDebug("GetSearchResults: Received {Count} results from WebHotelier", res.Results?.Count() ?? 0);
+                // Call provider
+                var providerResult = await provider.SearchAvailabilityAsync(searchQuery);
+
+                // Map provider result to Contracts response
+                int nights = (parsedCheckOut - parsedCheckin).Days;
+                var res = ProviderToContractsMapper.ToPluginSearchResponse(providerResult, providerId, nights);
+
+                logger.LogDebug("GetSearchResults: Received {Count} results from provider", res.Results?.Count() ?? 0);
 
                 res.SearchTerm = pars.searchTerm;
-                int nights = (parsedCheckOut - parsedCheckin).Days;
                 FillFilters(res, nights);
                 ApplyFilters(res, pars);
                 SetBoardText(res);
@@ -292,6 +297,28 @@ namespace TravelBridge.API.Endpoints
                     pars.searchTerm, stopwatch.ElapsedMilliseconds);
                 throw;
             }
+        }
+
+        private static string GetSortBy(string? sorting)
+        {
+            var sortOption = StringToEnum.ParseEnumFromDescription<SortOption>(sorting);
+            return sortOption switch
+            {
+                SortOption.Distance => "DISTANCE",
+                SortOption.PriceAsc or SortOption.PriceDesc => "PRICE",
+                _ => "POPULARITY"
+            };
+        }
+
+        private static string GetSortOrder(string? sorting)
+        {
+            var sortOption = StringToEnum.ParseEnumFromDescription<SortOption>(sorting);
+            return sortOption switch
+            {
+                SortOption.PriceDesc => "DESC",
+                SortOption.Distance or SortOption.PriceAsc => "ASC",
+                _ => "DESC"
+            };
         }
 
         private static void SetBoardText(PluginSearchResponse res)
