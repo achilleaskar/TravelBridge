@@ -50,6 +50,7 @@
 	  <ProjectReference Include="..\TravelBridge.Geo.Mapbox\TravelBridge.Geo.Mapbox.csproj" />
 	  <ProjectReference Include="..\TravelBridge.Geo.HereMaps\TravelBridge.Geo.HereMaps.csproj" />
 	  <ProjectReference Include="..\TravelBridge.Contracts\TravelBridge.Contracts.csproj" />
+	  <ProjectReference Include="..\TravelBridge.Providers.Owned\TravelBridge.Providers.Owned.csproj" />
 	</ItemGroup>
 
 	<ItemGroup>

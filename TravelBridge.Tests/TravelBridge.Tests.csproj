@@ -23,6 +23,7 @@
     <ProjectReference Include="..\TravelBridge.API\TravelBridge.API.csproj" />
     <ProjectReference Include="..\TravelBridge.Contracts\TravelBridge.Contracts.csproj" />
     <ProjectReference Include="..\TravelBridge.Providers.Abstractions\TravelBridge.Providers.Abstractions.csproj" />
+    <ProjectReference Include="..\TravelBridge.Providers.Owned\TravelBridge.Providers.Owned.csproj" />
   </ItemGroup>
 
 </Project>

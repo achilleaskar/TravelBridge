@@ -26,6 +26,8 @@ Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "TravelBridge.Tests", "Trave
 EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "TravelBridge.Providers.Abstractions", "TravelBridge.Providers.Abstractions\TravelBridge.Providers.Abstractions.csproj", "{06939467-2965-4A20-8DB5-A96E8286EE26}"
 EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "TravelBridge.Providers.Owned", "TravelBridge.Providers.Owned\TravelBridge.Providers.Owned.csproj", "{042D94F6-6E46-4381-AB3C-255B0F41735F}"
+EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
 		Debug|Any CPU = Debug|Any CPU
@@ -144,6 +146,18 @@ Global
 		{06939467-2965-4A20-8DB5-A96E8286EE26}.Release|x64.Build.0 = Release|Any CPU
 		{06939467-2965-4A20-8DB5-A96E8286EE26}.Release|x86.ActiveCfg = Release|Any CPU
 		{06939467-2965-4A20-8DB5-A96E8286EE26}.Release|x86.Build.0 = Release|Any CPU
+		{042D94F6-6E46-4381-AB3C-255B0F41735F}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{042D94F6-6E46-4381-AB3C-255B0F41735F}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{042D94F6-6E46-4381-AB3C-255B0F41735F}.Debug|x64.ActiveCfg = Debug|Any CPU
+		{042D94F6-6E46-4381-AB3C-255B0F41735F}.Debug|x64.Build.0 = Debug|Any CPU
+		{042D94F6-6E46-4381-AB3C-255B0F41735F}.Debug|x86.ActiveCfg = Debug|Any CPU
+		{042D94F6-6E46-4381-AB3C-255B0F41735F}.Debug|x86.Build.0 = Debug|Any CPU
+		{042D94F6-6E46-4381-AB3C-255B0F41735F}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{042D94F6-6E46-4381-AB3C-255B0F41735F}.Release|Any CPU.Build.0 = Release|Any CPU
+		{042D94F6-6E46-4381-AB3C-255B0F41735F}.Release|x64.ActiveCfg = Release|Any CPU
+		{042D94F6-6E46-4381-AB3C-255B0F41735F}.Release|x64.Build.0 = Release|Any CPU
+		{042D94F6-6E46-4381-AB3C-255B0F41735F}.Release|x86.ActiveCfg = Release|Any CPU
+		{042D94F6-6E46-4381-AB3C-255B0F41735F}.Release|x86.Build.0 = Release|Any CPU
 	EndGlobalSection
 	GlobalSection(SolutionProperties) = preSolution
 		HideSolutionNode = FALSE

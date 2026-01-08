@@ -1,128 +1,74 @@
-✅ Great — and **yes**, that is exactly the right fix to apply.
-That validation is **critical** because a capacity decrease is the *one* admin action that can silently create invalid rows unless we proactively guard it.
+Validated ✅ (by diffing **TravelBridge_phase3_mid.zip → p3 finished.zip**, ignoring `*.zip` artifacts).
+
+### What Copilot added/changed (mid → finished)
+
+**Added (14)**
+
+* ✅ `TravelBridge.Providers.Owned/` (`OwnedHotelProvider.cs`, `PartyHelpers.cs`, csproj)
+* ✅ Admin + seed:
+
+  * `TravelBridge.API/Endpoints/OwnedAdminEndpoint.cs`
+  * `TravelBridge.API/Services/InventorySeedService.cs`
+  * `TravelBridge.API/Data/OwnedInventorySeedData.sql`
+* ✅ Tests: `TravelBridge.Tests/Unit/OwnedProviderTests.cs` (14 MSTest tests)
+* ✅ Docs: `docs/PHASE3_*.md`
+* ⚠️ Also added: `TravelBridge.API/appsettings.json`, `TravelBridge.API/logs/*.log`
+
+**Modified (key ones)**
+
+* ✅ `TravelBridge.API/Program.cs` (DI + HostedService + map admin endpoints)
+* ✅ `TravelBridge.API.csproj`, `TravelBridge.Tests.csproj`, `TravelBridge.sln` (project references)
+
+### Does it look “Phase 3 complete”?
+
+**Mostly yes**: the missing Step 6–12 pieces are in place:
+
+* Owned provider implements all 5 `IHotelProvider` methods
+* RateId suffix format matches WebHotelier (`...-{adults}[_childAges]`)
+* Admin endpoints exist
+* Seed background service exists
+* DI wiring is present
+* Seed SQL exists
+* Tests compile logically (MSTest)
+
+### Critical issues / blockers
+
+1. **🚨 Secrets are committed**
+
+   * `TravelBridge.API/appsettings.json` contains a real MariaDB connection string **with password** (even if commented).
+   * Action: **rotate the credential immediately** and remove secrets from git (env vars / user-secrets / secret store).
+     (I’m not repeating the password here.)
+
+2. **🚨 “Auth-protected admin endpoints” are not actually enforced**
+
+   * `OwnedAdminEndpoint` uses `.RequireAuthorization()`
+   * BUT `Program.cs` does **not** add authorization/authentication services nor middleware:
+
+     * no `builder.Services.AddAuthorization()`
+     * no `app.UseAuthorization()`
+     * no authentication scheme configured
+   * Outcome can be bad either way (either effectively **unprotected**, or **broken/always-deny** once you add middleware).
+   * Action: wire real auth (JWT/API key/etc.) + middleware, or restrict these endpoints to Development.
+
+3. **Logs committed**
+
+   * `TravelBridge.API/logs/*.log` should be gitignored + removed from source control.
+
+4. **Seed service can stop the host on startup**
+
+   * `InventorySeedService` calls `SeedInventoryAsync()` on startup **outside a try/catch**.
+   * If DB is down, hosted service exception can stop the app (depending on host settings).
+   * Action: wrap startup seed in try/catch + log (or make it config-driven).
+
+5. (Minor) **Package version mismatch risk**
+
+   * Owned provider references `Microsoft.Extensions.Logging.Abstractions` **10.0.1** while targeting `net9.0`.
+   * Might be fine, but safer to align to 9.0.x with the rest of the solution.
 
 ---
 
-# ✅ What I confirmed in your current snapshot
+## Download my validation report
 
-In your **Phase 3 current** codebase, `UpdateInventoryClosedUnitsAsync` already does:
+[Download **TravelBridge_Phase3_Validation_Report.md**](sandbox:/mnt/data/TravelBridge_Phase3_Validation_Report.md)
 
-* Ensures rows exist
-* Loads affected rows
-* Validates that:
-
-  * `closedUnits <= TotalUnits`
-  * `closedUnits + held + confirmed <= TotalUnits`
-
-…but **`UpdateInventoryCapacityAsync` still did NOT**, which means a capacity reduction could violate constraints.
-
-So your added validation block is correct and consistent with your existing pattern.
-
----
-
-# ✅ Why this fix matters (and you nailed it)
-
-Even if your schema has CHECK constraints, MySQL/MariaDB **may not enforce them reliably** depending on version/settings.
-
-So code-layer validation ensures:
-
-✅ You can safely reduce capacity
-✅ You won’t create bad inventory rows
-✅ Future Phase 4 (holds + confirmed units) won’t break when totals are adjusted
-
----
-
-# 📌 Current status after this fix (accurate)
-
-✅ Steps 1–5 foundation: DB schema + EF models + repository + abstraction
-✅ Both admin inventory update methods now follow the same validation approach
-✅ You’re ready to begin **Steps 6–12** (Owned provider project + provider implementation + DI + admin endpoints + seed service + tests)
-
----
-
-# 🚧 What I started doing (but didn’t complete yet)
-
-Since you asked whether to proceed, I **began implementing Step 6**:
-
-* I created the folder for `TravelBridge.Providers.Owned`
-* I created `TravelBridge.Providers.Owned.csproj`
-* I added `GlobalUsings.cs`
-* I *began* creating `OwnedPartyHelpers.cs`
-
-⚠️ But I didn’t finish Step 6 or Step 7 yet — I ran out of tool-time while writing the helper file.
-
-So at this moment:
-
-✅ The Owned provider project structure has started
-❌ The helper file is incomplete
-❌ `OwnedHotelProvider` is not implemented yet
-❌ DI wiring / admin endpoints / seed hosted service / tests not yet done
-
----
-
-# ✅ Best Next Move (Recommended)
-
-### ✅ Option 1: Start executing Steps 6–12 (recommended)
-
-This is the best move now that your schema layer is solid and validated.
-
-I would proceed in this order:
-
-### Step 6 → Step 7 First (build provider end-to-end)
-
-1. Finalize `TravelBridge.Providers.Owned` project
-2. Implement `OwnedHotelProvider : IHotelProvider`
-
-   * `GetHotelAvailabilityAsync` first (most important)
-   * then HotelInfo, RoomInfo
-   * then Alternatives + Search MVP
-3. Register provider + store in DI (`Program.cs`)
-
-Then:
-
-### Step 8–9
-
-4. Add admin endpoints for capacity/closed/read inventory
-5. Add hosted seed service for rolling inventory window
-
-Then:
-
-### Step 10–12
-
-6. Seed dev data SQL
-7. Add basic tests for:
-
-   * party grouping
-   * `[checkIn, checkOut)` range behavior
-   * RateId format compatibility
-
----
-
-# ✅ Confirming before I continue
-
-You don’t need to clarify anything — but I want to confirm **one preference**:
-
-### For Owned hotel composite IDs, should we treat Value as:
-
-✅ **Hotel.Code** (ex: `0-OWNTEST01`) — matches your model comments
-or
-✅ **Hotel.Id** (ex: `0-12`) — easier numeric routing
-
-I can support **both** safely (numeric parse → ID, else → Code), which is what I planned for robustness.
-
----
-
-# ✅ Ready when you are
-
-If you say **“Proceed”**, I will:
-
-✅ Finish Step 6
-✅ Implement Step 7 (`OwnedHotelProvider`)
-✅ Wire DI
-✅ Add admin endpoints + seed hosted service
-✅ Add tests
-✅ Package the updated repo into a ready zip/patch
-
-Just tell me:
-
-👉 **Proceed with Steps 6–12**, and whether you prefer Code-only IDs or hybrid (code + numeric).
+If you want, paste your preferred auth approach (JWT bearer already used somewhere? API key? basic behind VPN?), and I’ll tell you the **minimal changes** to make `/admin/owned/inventory/*` truly protected without touching the rest of the app.

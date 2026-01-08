@@ -179,6 +179,21 @@ builder.Services.AddScoped<VivaAuthService>();
 
 builder.Services.AddScoped<ReservationsRepository>();
 
+// ==================== Owned Provider (ProviderId = 0) ====================
+// Register store implementation (repository pattern)
+builder.Services.AddScoped<TravelBridge.Providers.Abstractions.Store.IOwnedInventoryStore, OwnedInventoryRepository>();
+
+// Register OwnedHotelProvider as IHotelProvider
+// Note: Multiple IHotelProvider implementations will be resolved by HotelProviderResolver
+builder.Services.AddScoped<IHotelProvider, TravelBridge.Providers.Owned.OwnedHotelProvider>();
+
+// Register admin endpoint
+builder.Services.AddScoped<OwnedAdminEndpoint>();
+
+// Register background service for inventory seeding
+builder.Services.AddHostedService<InventorySeedService>();
+// =========================================================================
+
 #region Register Endpoint Groups
 
 // Register your service
@@ -259,6 +274,9 @@ using (var scope = app.Services.CreateScope())
 
     var reservationEndpoints = serviceProvider.GetRequiredService<ReservationEndpoints>();
     reservationEndpoints.MapEndpoints(app);
+
+    var ownedAdminEndpoints = serviceProvider.GetRequiredService<OwnedAdminEndpoint>();
+    ownedAdminEndpoints.MapEndpoints(app);
 }
 
 #endregion Register Endpoint Groups
