@@ -16,24 +16,9 @@ using TravelBridge.API.Models.WebHotelier;
 
 namespace TravelBridge.API.Endpoints
 {
-    public class SearchPluginEndpoints
+    public static class SearchPluginEndpoints
     {
-        private readonly WebHotelierPropertiesService webHotelierPropertiesService;
-        private readonly IHotelProviderResolver providerResolver;
-        private readonly MapBoxService mapBoxService;
-        private readonly ILogger<SearchPluginEndpoints> logger;
-
-        public SearchPluginEndpoints(
-            WebHotelierPropertiesService webHotelierPropertiesService, 
-            IHotelProviderResolver providerResolver,
-            MapBoxService mapBoxService, 
-            ILogger<SearchPluginEndpoints> logger)
-        {
-            this.webHotelierPropertiesService = webHotelierPropertiesService;
-            this.providerResolver = providerResolver;
-            this.mapBoxService = mapBoxService;
-            this.logger = logger;
-        }
+        private const string LogCategory = "SearchPluginEndpoints";
 
         public record SubmitSearchParameters
         (
@@ -54,24 +39,26 @@ namespace TravelBridge.API.Endpoints
             [FromQuery] string? rating
         );
 
-        public void MapEndpoints(IEndpointRouteBuilder app)
+        public static void MapEndpoints(IEndpointRouteBuilder app)
         {
             var apiGroup = app.MapGroup("/api/plugin");
 
             apiGroup.MapGet("/autocomplete",
             [EndpointSummary("Returns best matching locations that contain the provided search term")]
-            async (string? searchQuery) => await GetAutocompleteResults(searchQuery))
+            async (string? searchQuery, WebHotelierPropertiesService webHotelierPropertiesService, MapBoxService mapBoxService, ILoggerFactory loggerFactory, CancellationToken ct) => 
+                await GetAutocompleteResults(searchQuery, webHotelierPropertiesService, mapBoxService, loggerFactory.CreateLogger(LogCategory), ct))
                 .WithName("GetLocations")
                 .WithOpenApi(CustomizeAutoCompleteOperation);
 
             apiGroup.MapGet("/allproperties",
            [EndpointSummary("Returns best matching locations that contain the provided search term")]
-            async (string? type) => await GetAllProperties(type));
+            async (string? type, WebHotelierPropertiesService webHotelierPropertiesService, ILoggerFactory loggerFactory, CancellationToken ct) => 
+                await GetAllProperties(type, webHotelierPropertiesService, loggerFactory.CreateLogger(LogCategory), ct));
 
             apiGroup.MapGet("/submitSearch",
             [EndpointSummary("Returns best matching locations that contain the provided search term")]
-            async ([AsParameters] SubmitSearchParameters pars) =>
-            await GetSearchResults(pars))
+            async ([AsParameters] SubmitSearchParameters pars, IHotelProviderResolver providerResolver, ILoggerFactory loggerFactory, CancellationToken ct) =>
+                await GetSearchResults(pars, providerResolver, loggerFactory.CreateLogger(LogCategory), ct))
                 .WithName("SubmitSearch")
                 .WithOpenApi(CustomizeSearchOperation);
         }
@@ -100,7 +87,7 @@ namespace TravelBridge.API.Endpoints
                 .ToDictionary(g => g.Key, g => g.Select(x => x.hotel).Distinct().ToList());
         }
 
-        private async Task<object> GetAllProperties(string? type)
+        private static async Task<object> GetAllProperties(string? type, WebHotelierPropertiesService webHotelierPropertiesService, ILogger logger, CancellationToken ct)
         {
             logger.LogInformation("GetAllProperties started, Type filter: {Type}", type ?? "none");
             var stopwatch = System.Diagnostics.Stopwatch.StartNew();
@@ -166,7 +153,7 @@ namespace TravelBridge.API.Endpoints
             }
         }
 
-        private async Task<PluginSearchResponse> GetSearchResults(SubmitSearchParameters pars)
+        private static async Task<PluginSearchResponse> GetSearchResults(SubmitSearchParameters pars, IHotelProviderResolver providerResolver, ILogger logger, CancellationToken ct)
         {
             logger.LogInformation("GetSearchResults started - SearchTerm: {SearchTerm}, CheckIn: {CheckIn}, CheckOut: {CheckOut}, Bbox: {Bbox}, Adults: {Adults}, Rooms: {Rooms}, Page: {Page}", 
                 pars.searchTerm, pars.checkin, pars.checkOut, pars.bbox, pars.adults, pars.rooms, pars.page);
@@ -426,7 +413,7 @@ namespace TravelBridge.API.Endpoints
             }
         }
 
-        private void FillFilters(PluginSearchResponse res, int nights)
+        private static void FillFilters(PluginSearchResponse res, int nights)
         {
             FillPriceFilter(res, nights);
             res.Filters.Add(GetRatings(res));
@@ -642,7 +629,7 @@ namespace TravelBridge.API.Endpoints
             };
         }
 
-        private async Task<AutoCompleteResponse> GetAutocompleteResults(string? searchQuery)
+        private static async Task<AutoCompleteResponse> GetAutocompleteResults(string? searchQuery, WebHotelierPropertiesService webHotelierPropertiesService, MapBoxService mapBoxService, ILogger logger, CancellationToken ct)
         {
             logger.LogInformation("GetAutocompleteResults started for SearchQuery: {SearchQuery}", searchQuery);
             var stopwatch = System.Diagnostics.Stopwatch.StartNew();

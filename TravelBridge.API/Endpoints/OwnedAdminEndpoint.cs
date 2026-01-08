@@ -7,30 +7,22 @@ namespace TravelBridge.API.Endpoints;
 /// Admin endpoints for managing owned hotel inventory.
 /// Provides capacity management and stop-sell functionality.
 /// </summary>
-public class OwnedAdminEndpoint
+public static class OwnedAdminEndpoint
 {
-    private readonly IOwnedInventoryStore _store;
-    private readonly ILogger<OwnedAdminEndpoint> _logger;
-
-    public OwnedAdminEndpoint(IOwnedInventoryStore store, ILogger<OwnedAdminEndpoint> logger)
-    {
-        _store = store;
-        _logger = logger;
-    }
-
-    public void MapEndpoints(IEndpointRouteBuilder app)
+    public static void MapEndpoints(IEndpointRouteBuilder app)
     {
         // SECURITY: Admin endpoints are restricted to Development environment only in Phase 3
         // For production use, implement proper authentication (JWT, API Key, etc.)
         var env = app.ServiceProvider.GetRequiredService<IWebHostEnvironment>();
+        var logger = app.ServiceProvider.GetRequiredService<ILogger<Program>>();
         
         if (!env.IsDevelopment())
         {
-            _logger.LogWarning("OwnedAdminEndpoint: Admin endpoints NOT registered in {Environment} environment. Development environment required.", env.EnvironmentName);
+            logger.LogWarning("OwnedAdminEndpoint: Admin endpoints NOT registered in {Environment} environment. Development environment required.", env.EnvironmentName);
             return; // Don't register admin endpoints outside of Development
         }
 
-        _logger.LogInformation("OwnedAdminEndpoint: Registering admin endpoints (Development environment only)");
+        logger.LogInformation("OwnedAdminEndpoint: Registering admin endpoints (Development environment only)");
 
         var adminGroup = app.MapGroup("/admin/owned/inventory");
         // Note: No RequireAuthorization() in Phase 3 since we're dev-only
@@ -60,12 +52,14 @@ public class OwnedAdminEndpoint
     /// <summary>
     /// Update total capacity for a room type.
     /// </summary>
-    private async Task<IResult> SetCapacity(
+    private static async Task<IResult> SetCapacity(
         int roomTypeId,
         [FromBody] SetCapacityRequest request,
+        IOwnedInventoryStore store,
+        ILogger<Program> logger,
         CancellationToken ct)
     {
-        _logger.LogInformation("SetCapacity started for RoomTypeId: {RoomTypeId}, StartDate: {StartDate}, EndDate: {EndDate}, TotalUnits: {TotalUnits}",
+        logger.LogInformation("SetCapacity started for RoomTypeId: {RoomTypeId}, StartDate: {StartDate}, EndDate: {EndDate}, TotalUnits: {TotalUnits}",
             roomTypeId, request.StartDate, request.EndDateExclusive, request.TotalUnits);
 
         try
@@ -82,21 +76,21 @@ public class OwnedAdminEndpoint
             }
 
             // Verify room type exists
-            var roomType = await _store.GetRoomTypeByIdAsync(roomTypeId, ct);
+            var roomType = await store.GetRoomTypeByIdAsync(roomTypeId, ct);
             if (roomType == null)
             {
                 return Results.NotFound(new { error = $"Room type {roomTypeId} not found" });
             }
 
             // Update capacity
-            await _store.UpdateInventoryCapacityAsync(
+            await store.UpdateInventoryCapacityAsync(
                 roomTypeId,
                 request.StartDate,
                 request.EndDateExclusive,
                 request.TotalUnits,
                 ct);
 
-            _logger.LogInformation("SetCapacity completed for RoomTypeId: {RoomTypeId}", roomTypeId);
+            logger.LogInformation("SetCapacity completed for RoomTypeId: {RoomTypeId}", roomTypeId);
 
             return Results.Ok(new
             {
@@ -106,12 +100,12 @@ public class OwnedAdminEndpoint
         }
         catch (InvalidOperationException ex)
         {
-            _logger.LogWarning(ex, "SetCapacity failed validation for RoomTypeId: {RoomTypeId}", roomTypeId);
+            logger.LogWarning(ex, "SetCapacity failed validation for RoomTypeId: {RoomTypeId}", roomTypeId);
             return Results.BadRequest(new { error = ex.Message });
         }
         catch (Exception ex)
         {
-            _logger.LogError(ex, "SetCapacity failed for RoomTypeId: {RoomTypeId}", roomTypeId);
+            logger.LogError(ex, "SetCapacity failed for RoomTypeId: {RoomTypeId}", roomTypeId);
             return Results.Problem("An error occurred while updating capacity");
         }
     }
@@ -119,12 +113,14 @@ public class OwnedAdminEndpoint
     /// <summary>
     /// Update closed units (stop-sell) for a room type.
     /// </summary>
-    private async Task<IResult> SetClosedUnits(
+    private static async Task<IResult> SetClosedUnits(
         int roomTypeId,
         [FromBody] SetClosedUnitsRequest request,
+        IOwnedInventoryStore store,
+        ILogger<Program> logger,
         CancellationToken ct)
     {
-        _logger.LogInformation("SetClosedUnits started for RoomTypeId: {RoomTypeId}, StartDate: {StartDate}, EndDate: {EndDate}, ClosedUnits: {ClosedUnits}",
+        logger.LogInformation("SetClosedUnits started for RoomTypeId: {RoomTypeId}, StartDate: {StartDate}, EndDate: {EndDate}, ClosedUnits: {ClosedUnits}",
             roomTypeId, request.StartDate, request.EndDateExclusive, request.ClosedUnits);
 
         try
@@ -141,21 +137,21 @@ public class OwnedAdminEndpoint
             }
 
             // Verify room type exists
-            var roomType = await _store.GetRoomTypeByIdAsync(roomTypeId, ct);
+            var roomType = await store.GetRoomTypeByIdAsync(roomTypeId, ct);
             if (roomType == null)
             {
                 return Results.NotFound(new { error = $"Room type {roomTypeId} not found" });
             }
 
             // Update closed units
-            await _store.UpdateInventoryClosedUnitsAsync(
+            await store.UpdateInventoryClosedUnitsAsync(
                 roomTypeId,
                 request.StartDate,
                 request.EndDateExclusive,
                 request.ClosedUnits,
                 ct);
 
-            _logger.LogInformation("SetClosedUnits completed for RoomTypeId: {RoomTypeId}", roomTypeId);
+            logger.LogInformation("SetClosedUnits completed for RoomTypeId: {RoomTypeId}", roomTypeId);
 
             return Results.Ok(new
             {
@@ -165,12 +161,12 @@ public class OwnedAdminEndpoint
         }
         catch (InvalidOperationException ex)
         {
-            _logger.LogWarning(ex, "SetClosedUnits failed validation for RoomTypeId: {RoomTypeId}", roomTypeId);
+            logger.LogWarning(ex, "SetClosedUnits failed validation for RoomTypeId: {RoomTypeId}", roomTypeId);
             return Results.BadRequest(new { error = ex.Message });
         }
         catch (Exception ex)
         {
-            _logger.LogError(ex, "SetClosedUnits failed for RoomTypeId: {RoomTypeId}", roomTypeId);
+            logger.LogError(ex, "SetClosedUnits failed for RoomTypeId: {RoomTypeId}", roomTypeId);
             return Results.Problem("An error occurred while updating closed units");
         }
     }
@@ -178,12 +174,14 @@ public class OwnedAdminEndpoint
     /// <summary>
     /// Close an entire hotel (stop-sell all room types) for a date range.
     /// </summary>
-    private async Task<IResult> CloseHotel(
+    private static async Task<IResult> CloseHotel(
         string hotelCode,
         [FromBody] CloseDateRangeRequest request,
+        IOwnedInventoryStore store,
+        ILogger<Program> logger,
         CancellationToken ct)
     {
-        _logger.LogInformation("CloseHotel started for HotelCode: {HotelCode}, StartDate: {StartDate}, EndDate: {EndDate}",
+        logger.LogInformation("CloseHotel started for HotelCode: {HotelCode}, StartDate: {StartDate}, EndDate: {EndDate}",
             hotelCode, request.StartDate, request.EndDateExclusive);
 
         try
@@ -195,13 +193,13 @@ public class OwnedAdminEndpoint
             }
 
             // Get hotel and its room types
-            var hotel = await _store.GetHotelByCodeAsync(hotelCode, ct);
+            var hotel = await store.GetHotelByCodeAsync(hotelCode, ct);
             if (hotel == null)
             {
                 return Results.NotFound(new { error = $"Hotel {hotelCode} not found" });
             }
 
-            var roomTypes = await _store.GetRoomTypesByHotelIdAsync(hotel.Id, activeOnly: false, ct);
+            var roomTypes = await store.GetRoomTypesByHotelIdAsync(hotel.Id, activeOnly: false, ct);
             if (roomTypes.Count == 0)
             {
                 return Results.BadRequest(new { error = "Hotel has no room types" });
@@ -216,7 +214,7 @@ public class OwnedAdminEndpoint
                 try
                 {
                     // Get inventory for this room type to determine max capacity
-                    var inventory = await _store.GetInventoryAsync(
+                    var inventory = await store.GetInventoryAsync(
                         roomType.Id,
                         request.StartDate,
                         request.EndDateExclusive,
@@ -225,13 +223,13 @@ public class OwnedAdminEndpoint
                     if (inventory.Count == 0)
                     {
                         // No inventory exists, seed it first
-                        await _store.EnsureInventoryExistsAsync(
+                        await store.EnsureInventoryExistsAsync(
                             roomType.Id,
                             request.StartDate,
                             request.EndDateExclusive.DayNumber - request.StartDate.DayNumber,
                             ct);
 
-                        inventory = await _store.GetInventoryAsync(
+                        inventory = await store.GetInventoryAsync(
                             roomType.Id,
                             request.StartDate,
                             request.EndDateExclusive,
@@ -241,7 +239,7 @@ public class OwnedAdminEndpoint
                     // For each date, set ClosedUnits = TotalUnits
                     var maxTotal = inventory.Max(i => i.TotalUnits);
                     
-                    await _store.UpdateInventoryClosedUnitsAsync(
+                    await store.UpdateInventoryClosedUnitsAsync(
                         roomType.Id,
                         request.StartDate,
                         request.EndDateExclusive,
@@ -252,7 +250,7 @@ public class OwnedAdminEndpoint
                 }
                 catch (Exception ex)
                 {
-                    _logger.LogWarning(ex, "Failed to close room type {RoomTypeId} in hotel {HotelCode}",
+                    logger.LogWarning(ex, "Failed to close room type {RoomTypeId} in hotel {HotelCode}",
                         roomType.Id, hotelCode);
                     errors.Add($"Room type {roomType.Code}: {ex.Message}");
                 }
@@ -268,7 +266,7 @@ public class OwnedAdminEndpoint
                 });
             }
 
-            _logger.LogInformation("CloseHotel completed for HotelCode: {HotelCode}, RoomTypes: {Count}",
+            logger.LogInformation("CloseHotel completed for HotelCode: {HotelCode}, RoomTypes: {Count}",
                 hotelCode, updatedCount);
 
             return Results.Ok(new
@@ -279,7 +277,7 @@ public class OwnedAdminEndpoint
         }
         catch (Exception ex)
         {
-            _logger.LogError(ex, "CloseHotel failed for HotelCode: {HotelCode}", hotelCode);
+            logger.LogError(ex, "CloseHotel failed for HotelCode: {HotelCode}", hotelCode);
             return Results.Problem("An error occurred while closing the hotel");
         }
     }
@@ -287,13 +285,15 @@ public class OwnedAdminEndpoint
     /// <summary>
     /// Get inventory details for a room type across a date range.
     /// </summary>
-    private async Task<IResult> GetInventory(
+    private static async Task<IResult> GetInventory(
         int roomTypeId,
         [FromQuery] DateOnly? startDate,
         [FromQuery] DateOnly? endDate,
+        IOwnedInventoryStore store,
+        ILogger<Program> logger,
         CancellationToken ct)
     {
-        _logger.LogInformation("GetInventory started for RoomTypeId: {RoomTypeId}, StartDate: {StartDate}, EndDate: {EndDate}",
+        logger.LogInformation("GetInventory started for RoomTypeId: {RoomTypeId}, StartDate: {StartDate}, EndDate: {EndDate}",
             roomTypeId, startDate, endDate);
 
         try
@@ -308,16 +308,16 @@ public class OwnedAdminEndpoint
             }
 
             // Verify room type exists
-            var roomType = await _store.GetRoomTypeByIdAsync(roomTypeId, ct);
+            var roomType = await store.GetRoomTypeByIdAsync(roomTypeId, ct);
             if (roomType == null)
             {
                 return Results.NotFound(new { error = $"Room type {roomTypeId} not found" });
             }
 
             // Get inventory
-            var inventory = await _store.GetInventoryAsync(roomTypeId, start, end, ct);
+            var inventory = await store.GetInventoryAsync(roomTypeId, start, end, ct);
 
-            _logger.LogInformation("GetInventory completed for RoomTypeId: {RoomTypeId}, Rows: {Count}",
+            logger.LogInformation("GetInventory completed for RoomTypeId: {RoomTypeId}, Rows: {Count}",
                 roomTypeId, inventory.Count);
 
             return Results.Ok(new
@@ -346,7 +346,7 @@ public class OwnedAdminEndpoint
         }
         catch (Exception ex)
         {
-            _logger.LogError(ex, "GetInventory failed for RoomTypeId: {RoomTypeId}", roomTypeId);
+            logger.LogError(ex, "GetInventory failed for RoomTypeId: {RoomTypeId}", roomTypeId);
             return Results.Problem("An error occurred while retrieving inventory");
         }
     }
@@ -355,12 +355,14 @@ public class OwnedAdminEndpoint
     /// Manually trigger inventory seeding for a room type.
     /// Useful for testing or one-off data population.
     /// </summary>
-    private async Task<IResult> SeedInventory(
+    private static async Task<IResult> SeedInventory(
         int roomTypeId,
         [FromBody] SeedInventoryRequest request,
+        IOwnedInventoryStore store,
+        ILogger<Program> logger,
         CancellationToken ct)
     {
-        _logger.LogInformation("SeedInventory started for RoomTypeId: {RoomTypeId}, StartDate: {StartDate}, Days: {Days}",
+        logger.LogInformation("SeedInventory started for RoomTypeId: {RoomTypeId}, StartDate: {StartDate}, Days: {Days}",
             roomTypeId, request.StartDate, request.Days);
 
         try
@@ -371,16 +373,16 @@ public class OwnedAdminEndpoint
             }
 
             // Verify room type exists
-            var roomType = await _store.GetRoomTypeByIdAsync(roomTypeId, ct);
+            var roomType = await store.GetRoomTypeByIdAsync(roomTypeId, ct);
             if (roomType == null)
             {
                 return Results.NotFound(new { error = $"Room type {roomTypeId} not found" });
             }
 
             // Seed inventory
-            await _store.EnsureInventoryExistsAsync(roomTypeId, request.StartDate, request.Days, ct);
+            await store.EnsureInventoryExistsAsync(roomTypeId, request.StartDate, request.Days, ct);
 
-            _logger.LogInformation("SeedInventory completed for RoomTypeId: {RoomTypeId}", roomTypeId);
+            logger.LogInformation("SeedInventory completed for RoomTypeId: {RoomTypeId}", roomTypeId);
 
             return Results.Ok(new
             {
@@ -390,7 +392,7 @@ public class OwnedAdminEndpoint
         }
         catch (Exception ex)
         {
-            _logger.LogError(ex, "SeedInventory failed for RoomTypeId: {RoomTypeId}", roomTypeId);
+            logger.LogError(ex, "SeedInventory failed for RoomTypeId: {RoomTypeId}", roomTypeId);
             return Results.Problem("An error occurred while seeding inventory");
         }
     }

@@ -13,12 +13,13 @@ namespace TravelBridge.Tests.Unit;
 [TestClass]
 public class SearchPluginEndpointsTests
 {
-    private Mock<ILogger<SearchPluginEndpoints>> _mockLogger = null!;
+    private Mock<ILogger> _mockLogger = null!;
 
     [TestInitialize]
     public void Setup()
     {
-        _mockLogger = new Mock<ILogger<SearchPluginEndpoints>>();
+        _mockLogger = new Mock<ILogger>();
+        // Note: SearchPluginEndpoints is now a static class with per-request DI
     }
 
     #region GetAutocompleteResults Validation Tests

@@ -61,7 +61,7 @@ namespace TravelBridge.API.Migrations
 
                     b.HasKey("Id");
 
-                    b.ToTable("Coupons");
+                    b.ToTable("Coupons", (string)null);
                 });
 
             modelBuilder.Entity("TravelBridge.API.Models.DB.Customer", b =>
@@ -106,7 +106,7 @@ namespace TravelBridge.API.Migrations
 
                     b.HasKey("Id");
 
-                    b.ToTable("Customers");
+                    b.ToTable("Customers", (string)null);
                 });
 
             modelBuilder.Entity("TravelBridge.API.Models.DB.NextPaymentDB", b =>
@@ -135,7 +135,7 @@ namespace TravelBridge.API.Migrations
 
                     b.HasIndex("PartialPaymentDBId");
 
-                    b.ToTable("NextPaymentDB");
+                    b.ToTable("NextPaymentDB", (string)null);
                 });
 
             modelBuilder.Entity("TravelBridge.API.Models.DB.OwnedHotel", b =>
@@ -216,7 +216,7 @@ namespace TravelBridge.API.Migrations
                     b.HasIndex("Latitude", "Longitude")
                         .HasDatabaseName("IX_OwnedHotel_Location");
 
-                    b.ToTable("OwnedHotels");
+                    b.ToTable("OwnedHotels", (string)null);
                 });
 
             modelBuilder.Entity("TravelBridge.API.Models.DB.OwnedInventoryDaily", b =>
@@ -251,7 +251,7 @@ namespace TravelBridge.API.Migrations
                     b.HasIndex("Date")
                         .HasDatabaseName("IX_OwnedInventoryDaily_Date");
 
-                    b.ToTable("OwnedInventoryDaily", t =>
+                    b.ToTable("OwnedInventoryDaily", null, t =>
                         {
                             t.HasCheckConstraint("CK_OwnedInventoryDaily_Counters", "ClosedUnits >= 0 AND HeldUnits >= 0 AND ConfirmedUnits >= 0 AND (ClosedUnits + HeldUnits + ConfirmedUnits) <= TotalUnits");
                         });
@@ -316,7 +316,7 @@ namespace TravelBridge.API.Migrations
                         .IsUnique()
                         .HasDatabaseName("IX_OwnedRoomType_HotelId_Code");
 
-                    b.ToTable("OwnedRoomTypes");
+                    b.ToTable("OwnedRoomTypes", (string)null);
                 });
 
             modelBuilder.Entity("TravelBridge.API.Models.DB.PartialPaymentDB", b =>
@@ -337,7 +337,7 @@ namespace TravelBridge.API.Migrations
 
                     b.HasKey("Id");
 
-                    b.ToTable("PartialPaymentDB");
+                    b.ToTable("PartialPaymentDB", (string)null);
                 });
 
             modelBuilder.Entity("TravelBridge.API.Models.DB.PartyItemDB", b =>
@@ -368,7 +368,7 @@ namespace TravelBridge.API.Migrations
 
                     b.HasKey("Id");
 
-                    b.ToTable("PartyItemDB");
+                    b.ToTable("PartyItemDB", (string)null);
                 });
 
             modelBuilder.Entity("TravelBridge.API.Models.DB.Payment", b =>
@@ -416,7 +416,7 @@ namespace TravelBridge.API.Migrations
 
                     b.HasIndex("ReservationId");
 
-                    b.ToTable("Payments");
+                    b.ToTable("Payments", (string)null);
                 });
 
             modelBuilder.Entity("TravelBridge.API.Models.DB.Reservation", b =>
@@ -488,7 +488,7 @@ namespace TravelBridge.API.Migrations
 
                     b.HasIndex("PartialPaymentId");
 
-                    b.ToTable("Reservations");
+                    b.ToTable("Reservations", (string)null);
                 });
 
             modelBuilder.Entity("TravelBridge.API.Models.DB.ReservationRate", b =>
@@ -555,7 +555,7 @@ namespace TravelBridge.API.Migrations
 
                     b.HasIndex("SearchPartyId");
 
-                    b.ToTable("ReservationRates");
+                    b.ToTable("ReservationRates", (string)null);
                 });
 
             modelBuilder.Entity("TravelBridge.API.Models.DB.NextPaymentDB", b =>

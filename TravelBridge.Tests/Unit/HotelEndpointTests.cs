@@ -2,10 +2,6 @@ using Microsoft.Extensions.Logging;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
 using Moq;
 using TravelBridge.API.Endpoints;
-using TravelBridge.API.Models.WebHotelier;
-using TravelBridge.API.Repositories;
-using TravelBridge.Contracts.Contracts.Responses;
-using TravelBridge.Providers.WebHotelier.Models.Responses;
 
 namespace TravelBridge.Tests.Unit;
 
@@ -16,16 +12,14 @@ namespace TravelBridge.Tests.Unit;
 [TestClass]
 public class HotelEndpointTests
 {
-    private Mock<WebHotelierPropertiesService> _mockWebHotelierService = null!;
-    private Mock<ILogger<HotelEndpoint>> _mockLogger = null!;
-    private HotelEndpoint _endpoint = null!;
+    private Mock<ILogger> _mockLogger = null!;
 
     [TestInitialize]
     public void Setup()
     {
-        _mockLogger = new Mock<ILogger<HotelEndpoint>>();
-        // Note: WebHotelierPropertiesService requires its own dependencies, so we can't easily mock it
-        // These tests focus on validation logic that can be tested with reflection or by extracting validation methods
+        _mockLogger = new Mock<ILogger>();
+        // Note: HotelEndpoint is now a static class with per-request DI
+        // These tests focus on validation logic that can be tested with extracted validation methods
     }
 
     #region GetHotelInfo Validation Tests

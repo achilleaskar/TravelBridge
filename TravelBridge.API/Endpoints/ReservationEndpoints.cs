@@ -20,17 +20,8 @@ using static TravelBridge.API.Helpers.General;
 
 namespace TravelBridge.API.Endpoints
 {
-    public class ReservationEndpoints
+    public static class ReservationEndpoints
     {
-        private readonly WebHotelierPropertiesService webHotelierPropertiesService;
-        private readonly ILogger<ReservationEndpoints> _logger;
-
-        public ReservationEndpoints(WebHotelierPropertiesService webHotelierPropertiesService, ILogger<ReservationEndpoints> logger)
-        {
-            this.webHotelierPropertiesService = webHotelierPropertiesService;
-            _logger = logger;
-        }
-
         public record SubmitSearchParameters
         (
             [FromQuery] string checkin,
@@ -101,54 +92,54 @@ namespace TravelBridge.API.Endpoints
             FormData formData
         );
 
-        public void MapEndpoints(IEndpointRouteBuilder app)
+        public static void MapEndpoints(IEndpointRouteBuilder app)
         {
             var apiGroup = app.MapGroup("/api/reservation");
 
             apiGroup.MapGet("/checkout",
             [EndpointSummary("Returns best matching locations that contain the provided search term")]
-            async ([AsParameters] SubmitSearchParameters pars) =>
-            await GetCheckoutInfo(pars))
+            async ([AsParameters] SubmitSearchParameters pars, WebHotelierPropertiesService webHotelierPropertiesService, ILogger<Program> logger) =>
+                await GetCheckoutInfo(pars, webHotelierPropertiesService, logger))
                 .WithName("Checkout")
                 .WithOpenApi(CustomizeCheckoutOperation);
 
             apiGroup.MapPost("/preparePayment",
             [EndpointSummary("Creates Reservation On DB and prepares payment")]
-            async (BookingRequest pars, ReservationsRepository repo, VivaService viva) =>
-            await PreparePayment(pars, repo, viva))
+            async (BookingRequest pars, WebHotelierPropertiesService webHotelierPropertiesService, ReservationsRepository repo, VivaService viva, ILogger<Program> logger) =>
+                await PreparePayment(pars, webHotelierPropertiesService, repo, viva, logger))
                 .WithName("PreparePayment")
                 .WithOpenApi(CustomizePreparePaymentOperation);
 
             apiGroup.MapPost("/paymentFailed",
             [EndpointSummary("returns full reservation data")]
-            async (PaymentInfo pay, ReservationsRepository repo) =>
-            await GetOrderInfo(pay, repo))
+            async (PaymentInfo pay, WebHotelierPropertiesService webHotelierPropertiesService, ReservationsRepository repo, ILogger<Program> logger) =>
+                await GetOrderInfo(pay, webHotelierPropertiesService, repo, logger))
                 .WithName("PaymentFailed")
                 .WithOpenApi(CustomizePaymentFailedOperation);
 
             apiGroup.MapPost("/paymentSucceed",
            [EndpointSummary("Confirms Payment and returns reservation basic data")]
-            async (PaymentInfo pay, ReservationsRepository repo, VivaService viva) =>
-           await ConfirmPayment(pay, repo, viva))
+            async (PaymentInfo pay, WebHotelierPropertiesService webHotelierPropertiesService, ReservationsRepository repo, VivaService viva, ILogger<Program> logger) =>
+                await ConfirmPayment(pay, webHotelierPropertiesService, repo, viva, logger))
                .WithName("PaymentSucceed")
                .WithOpenApi(CustomizePaymentSucceedOperation);
 
             apiGroup.MapPost("/cancelBooking",
           [EndpointSummary("cancels booking")]
-            async (string bookingNumber, ReservationsRepository repo) =>
-          await CancelBooking(bookingNumber, repo))
+            async (string bookingNumber, WebHotelierPropertiesService webHotelierPropertiesService, ReservationsRepository repo, ILogger<Program> logger) =>
+                await CancelBooking(bookingNumber, webHotelierPropertiesService, repo, logger))
               .WithName("CancelBooking");
 
             apiGroup.MapPost("/applyCoupon",
           [EndpointSummary("Applies Coupon")]
-            async (ReservationRequest reservationRequest, ReservationsRepository repo) =>
-          await ApplyCoupon(reservationRequest, repo))
+            async (ReservationRequest reservationRequest, WebHotelierPropertiesService webHotelierPropertiesService, ReservationsRepository repo, ILogger<Program> logger) =>
+                await ApplyCoupon(reservationRequest, webHotelierPropertiesService, repo, logger))
               .WithName("ApplyCoupon");
         }
 
-        private async Task CancelBooking(string OrderCode, ReservationsRepository repo)
+        private static async Task CancelBooking(string OrderCode, WebHotelierPropertiesService webHotelierPropertiesService, ReservationsRepository repo, ILogger logger)
         {
-            _logger.LogInformation("CancelBooking started for OrderCode: {OrderCode}", OrderCode);
+            logger.LogInformation("CancelBooking started for OrderCode: {OrderCode}", OrderCode);
             var stopwatch = System.Diagnostics.Stopwatch.StartNew();
 
             try
@@ -156,48 +147,48 @@ namespace TravelBridge.API.Endpoints
                 var reservation = await repo.GetReservationBasicDataByPaymentCode(OrderCode);
                 if (reservation == null)
                 {
-                    _logger.LogWarning("CancelBooking failed: Reservation not found for OrderCode: {OrderCode}", OrderCode);
+                    logger.LogWarning("CancelBooking failed: Reservation not found for OrderCode: {OrderCode}", OrderCode);
                     throw new InvalidOperationException("Reservation not found");
                 }
 
-                _logger.LogInformation("CancelBooking: Found reservation {ReservationId} for OrderCode: {OrderCode}", reservation.Id, OrderCode);
+                logger.LogInformation("CancelBooking: Found reservation {ReservationId} for OrderCode: {OrderCode}", reservation.Id, OrderCode);
                 await webHotelierPropertiesService.CancelBooking(reservation, repo);
 
                 stopwatch.Stop();
-                _logger.LogInformation("CancelBooking completed for OrderCode: {OrderCode}, ReservationId: {ReservationId} in {ElapsedMs}ms", 
+                logger.LogInformation("CancelBooking completed for OrderCode: {OrderCode}, ReservationId: {ReservationId} in {ElapsedMs}ms", 
                     OrderCode, reservation.Id, stopwatch.ElapsedMilliseconds);
             }
             catch (Exception ex)
             {
                 stopwatch.Stop();
-                _logger.LogError(ex, "CancelBooking failed for OrderCode: {OrderCode} after {ElapsedMs}ms", 
+                logger.LogError(ex, "CancelBooking failed for OrderCode: {OrderCode} after {ElapsedMs}ms", 
                     OrderCode, stopwatch.ElapsedMilliseconds);
                 throw;
             }
         }
 
-        private async Task<CheckoutResponse> GetOrderInfo(PaymentInfo pay, ReservationsRepository repo)
+        private static async Task<CheckoutResponse> GetOrderInfo(PaymentInfo pay, WebHotelierPropertiesService webHotelierPropertiesService, ReservationsRepository repo, ILogger logger)
         {
-            _logger.LogInformation("GetOrderInfo started for OrderCode: {OrderCode}", pay.OrderCode);
+            logger.LogInformation("GetOrderInfo started for OrderCode: {OrderCode}", pay.OrderCode);
             var stopwatch = System.Diagnostics.Stopwatch.StartNew();
 
             try
             {
                 if (string.IsNullOrWhiteSpace(pay.OrderCode))
                 {
-                    _logger.LogWarning("GetOrderInfo failed: Invalid order code");
+                    logger.LogWarning("GetOrderInfo failed: Invalid order code");
                     throw new ArgumentException("Invalid order code");
                 }
 
                 var reservation = await repo.GetFullReservationFromPaymentCode(pay.OrderCode)
                     ?? throw new InvalidOperationException("Reservation not found");
 
-                _logger.LogInformation("GetOrderInfo: Found reservation {ReservationId} for OrderCode: {OrderCode}", reservation.Id, pay.OrderCode);
+                logger.LogInformation("GetOrderInfo: Found reservation {ReservationId} for OrderCode: {OrderCode}", reservation.Id, pay.OrderCode);
 
                 var payment = reservation.Payments.FirstOrDefault(p => p.OrderCode == pay.OrderCode)
                     ?? throw new InvalidOperationException("Payment not found");
 
-                _logger.LogInformation("GetOrderInfo: Updating payment status to failed for PaymentId: {PaymentId}", payment.Id);
+                logger.LogInformation("GetOrderInfo: Updating payment status to failed for PaymentId: {PaymentId}", payment.Id);
                 await repo.UpdatePaymentFailed(payment);
 
                 var res = await GetCheckoutInfo(new SubmitSearchParameters(
@@ -206,13 +197,13 @@ namespace TravelBridge.API.Endpoints
                     "",
                     reservation.HotelCode,
                     JsonSerializer.Serialize(reservation.Rates.Select(r => new SelectedRate { rateId = r.RateId, count = r.Quantity, searchParty = r.SearchParty?.Party ?? "" }))
-                ));
+                ), webHotelierPropertiesService, logger);
 
                 res.LabelErrorMessage = "Η πληρωμή απέτυχε. Παρακαλώ δοκιμάστε ξανά.";
                 res.ErrorCode = "PAY_FAILED";
 
                 stopwatch.Stop();
-                _logger.LogInformation("GetOrderInfo completed for OrderCode: {OrderCode}, ReservationId: {ReservationId} in {ElapsedMs}ms", 
+                logger.LogInformation("GetOrderInfo completed for OrderCode: {OrderCode}, ReservationId: {ReservationId} in {ElapsedMs}ms", 
                     pay.OrderCode, reservation.Id, stopwatch.ElapsedMilliseconds);
 
                 return res;
@@ -220,45 +211,45 @@ namespace TravelBridge.API.Endpoints
             catch (Exception ex)
             {
                 stopwatch.Stop();
-                _logger.LogError(ex, "GetOrderInfo failed for OrderCode: {OrderCode} after {ElapsedMs}ms", 
+                logger.LogError(ex, "GetOrderInfo failed for OrderCode: {OrderCode} after {ElapsedMs}ms", 
                     pay.OrderCode, stopwatch.ElapsedMilliseconds);
                 throw;
             }
         }
 
-        private async Task<SuccessfulPaymentResponse> ConfirmPayment(PaymentInfo pay, ReservationsRepository repo, VivaService viva)
+        private static async Task<SuccessfulPaymentResponse> ConfirmPayment(PaymentInfo pay, WebHotelierPropertiesService webHotelierPropertiesService, ReservationsRepository repo, VivaService viva, ILogger logger)
         {
-            _logger.LogInformation("ConfirmPayment started for OrderCode: {OrderCode}, Tid: {Tid}", pay.OrderCode, pay.Tid);
+            logger.LogInformation("ConfirmPayment started for OrderCode: {OrderCode}, Tid: {Tid}", pay.OrderCode, pay.Tid);
             var stopwatch = System.Diagnostics.Stopwatch.StartNew();
 
             try
             {
                 if (string.IsNullOrWhiteSpace(pay.OrderCode) || string.IsNullOrWhiteSpace(pay.Tid))
                 {
-                    _logger.LogWarning("ConfirmPayment failed: Invalid payment info - OrderCode: {OrderCode}, Tid: {Tid}", pay.OrderCode, pay.Tid);
+                    logger.LogWarning("ConfirmPayment failed: Invalid payment info - OrderCode: {OrderCode}, Tid: {Tid}", pay.OrderCode, pay.Tid);
                     throw new ArgumentException("Invalid payment info");
                 }
 
                 var reservation = await repo.GetReservationBasicDataByPaymentCode(pay.OrderCode);
                 if (reservation == null)
                 {
-                    _logger.LogWarning("ConfirmPayment failed: Reservation not found for OrderCode: {OrderCode}", pay.OrderCode);
+                    logger.LogWarning("ConfirmPayment failed: Reservation not found for OrderCode: {OrderCode}", pay.OrderCode);
                     return new SuccessfulPaymentResponse(error: "Reservation not found", "NO_RES");
                 }
 
-                _logger.LogInformation("ConfirmPayment: Found reservation {ReservationId}, TotalAmount: {TotalAmount}, PrepayAmount: {PrepayAmount}", 
+                logger.LogInformation("ConfirmPayment: Found reservation {ReservationId}, TotalAmount: {TotalAmount}, PrepayAmount: {PrepayAmount}", 
                     reservation.Id, reservation.TotalAmount, reservation.PartialPayment?.prepayAmount);
 
                 try
                 {
-                    _logger.LogDebug("ConfirmPayment: Validating payment with Viva for OrderCode: {OrderCode}", pay.OrderCode);
+                    logger.LogDebug("ConfirmPayment: Validating payment with Viva for OrderCode: {OrderCode}", pay.OrderCode);
                     if (await viva.ValidatePayment(pay.OrderCode, pay.Tid, reservation.TotalAmount, reservation.PartialPayment?.prepayAmount) && await repo.UpdatePaymentSucceed(pay.OrderCode, pay.Tid))
                     {
-                        _logger.LogInformation("ConfirmPayment: Payment validated successfully for OrderCode: {OrderCode}, creating booking", pay.OrderCode);
+                        logger.LogInformation("ConfirmPayment: Payment validated successfully for OrderCode: {OrderCode}, creating booking", pay.OrderCode);
                         await webHotelierPropertiesService.CreateBooking(reservation, repo);
 
                         stopwatch.Stop();
-                        _logger.LogInformation("ConfirmPayment completed successfully for OrderCode: {OrderCode}, ReservationId: {ReservationId} in {ElapsedMs}ms", 
+                        logger.LogInformation("ConfirmPayment completed successfully for OrderCode: {OrderCode}, ReservationId: {ReservationId} in {ElapsedMs}ms", 
                             pay.OrderCode, reservation.Id, stopwatch.ElapsedMilliseconds);
 
                         return new SuccessfulPaymentResponse
@@ -276,7 +267,7 @@ namespace TravelBridge.API.Endpoints
                     else
                     {
                         stopwatch.Stop();
-                        _logger.LogWarning("ConfirmPayment: Payment validation failed for OrderCode: {OrderCode}, ReservationId: {ReservationId} in {ElapsedMs}ms", 
+                        logger.LogWarning("ConfirmPayment: Payment validation failed for OrderCode: {OrderCode}, ReservationId: {ReservationId} in {ElapsedMs}ms", 
                             pay.OrderCode, reservation.Id, stopwatch.ElapsedMilliseconds);
                         return new SuccessfulPaymentResponse(error: $"Υπήρξε πρόβλημα με την πληρωμή της κράτησής σας με αριθμό {reservation.Id}, παρακαλώ επικοινωνήστε μαζί μας.", "RES_ERROR");
                     }
@@ -284,7 +275,7 @@ namespace TravelBridge.API.Endpoints
                 catch (Exception ex)
                 {
                     stopwatch.Stop();
-                    _logger.LogError(ex, "ConfirmPayment: Exception during payment validation/booking for OrderCode: {OrderCode}, ReservationId: {ReservationId} in {ElapsedMs}ms", 
+                    logger.LogError(ex, "ConfirmPayment: Exception during payment validation/booking for OrderCode: {OrderCode}, ReservationId: {ReservationId} in {ElapsedMs}ms", 
                         pay.OrderCode, reservation.Id, stopwatch.ElapsedMilliseconds);
                     return new SuccessfulPaymentResponse(error: $"Υπήρξε πρόβλημα με την πληρωμή της κράτησής σας με αριθμό {reservation.Id}, παρακαλώ επικοινωνήστε μαζί μας.", "RES_ERROR");
                 }
@@ -292,15 +283,15 @@ namespace TravelBridge.API.Endpoints
             catch (Exception ex)
             {
                 stopwatch.Stop();
-                _logger.LogError(ex, "ConfirmPayment failed for OrderCode: {OrderCode} after {ElapsedMs}ms", 
+                logger.LogError(ex, "ConfirmPayment failed for OrderCode: {OrderCode} after {ElapsedMs}ms", 
                     pay.OrderCode, stopwatch.ElapsedMilliseconds);
                 throw;
             }
         }
 
-        private async Task<PreparePaymentResponse> PreparePayment(BookingRequest pars, ReservationsRepository repo, VivaService viva)
+        private static async Task<PreparePaymentResponse> PreparePayment(BookingRequest pars, WebHotelierPropertiesService webHotelierPropertiesService, ReservationsRepository repo, VivaService viva, ILogger logger)
         {
-            _logger.LogInformation("PreparePayment started for HotelId: {HotelId}, CheckIn: {CheckIn}, CheckOut: {CheckOut}, TotalPrice: {TotalPrice}, PrepayAmount: {PrepayAmount}", 
+            logger.LogInformation("PreparePayment started for HotelId: {HotelId}, CheckIn: {CheckIn}, CheckOut: {CheckOut}, TotalPrice: {TotalPrice}, PrepayAmount: {PrepayAmount}", 
                 pars.HotelId, pars.CheckIn, pars.CheckOut, pars.TotalPrice, pars.PrepayAmount);
             var stopwatch = System.Diagnostics.Stopwatch.StartNew();
 
@@ -310,20 +301,20 @@ namespace TravelBridge.API.Endpoints
 
                 if (!DateTime.TryParseExact(pars.CheckIn, "dd/MM/yyyy", CultureInfo.InvariantCulture, DateTimeStyles.None, out var parsedCheckin))
                 {
-                    _logger.LogWarning("PreparePayment failed: Invalid checkin date format {CheckIn}", pars.CheckIn);
+                    logger.LogWarning("PreparePayment failed: Invalid checkin date format {CheckIn}", pars.CheckIn);
                     throw new InvalidCastException("Invalid checkin date format. Use dd/MM/yyyy.");
                 }
 
                 if (!DateTime.TryParseExact(pars.CheckOut, "dd/MM/yyyy", CultureInfo.InvariantCulture, DateTimeStyles.None, out var parsedCheckOut))
                 {
-                    _logger.LogWarning("PreparePayment failed: Invalid checkout date format {CheckOut}", pars.CheckOut);
+                    logger.LogWarning("PreparePayment failed: Invalid checkout date format {CheckOut}", pars.CheckOut);
                     throw new InvalidCastException("Invalid checkout date format. Use dd/MM/yyyy.");
                 }
 
                 List<SelectedRate>? SelectedRates;
                 if (string.IsNullOrWhiteSpace(pars.SelectedRates))
                 {
-                    _logger.LogWarning("PreparePayment failed: Invalid selected rates");
+                    logger.LogWarning("PreparePayment failed: Invalid selected rates");
                     throw new InvalidCastException("Invalid selected rates");
                 }
                 else
@@ -331,19 +322,19 @@ namespace TravelBridge.API.Endpoints
                     SelectedRates = RatesToList(pars.SelectedRates);
                     if (SelectedRates == null)
                     {
-                        _logger.LogWarning("PreparePayment failed: Could not parse selected rates");
+                        logger.LogWarning("PreparePayment failed: Could not parse selected rates");
                         throw new InvalidCastException("Invalid selected rates");
                     }
                 }
 
-                _logger.LogDebug("PreparePayment: Parsed {RateCount} selected rates", SelectedRates.Count);
+                logger.LogDebug("PreparePayment: Parsed {RateCount} selected rates", SelectedRates.Count);
 
                 string party;
                 if (string.IsNullOrWhiteSpace(pars.Party))
                 {
                     if (pars.Adults == null || pars.Adults < 1)
                     {
-                        _logger.LogWarning("PreparePayment failed: At least one adult required, Adults: {Adults}", pars.Adults);
+                        logger.LogWarning("PreparePayment failed: At least one adult required, Adults: {Adults}", pars.Adults);
                         throw new ArgumentException("There must be at least one adult in the room.");
                     }
 
@@ -356,13 +347,13 @@ namespace TravelBridge.API.Endpoints
 
                 if (!CompositeId.TryParse(pars.HotelId, out var compositeId))
                 {
-                    _logger.LogWarning("PreparePayment failed: Invalid hotelId format {HotelId}", pars.HotelId);
+                    logger.LogWarning("PreparePayment failed: Invalid hotelId format {HotelId}", pars.HotelId);
                     throw new ArgumentException("Invalid hotelId format. Expected format: '{providerId}-{hotelCode}'.", nameof(pars.HotelId));
                 }
 
                 #endregion Param Validation
 
-                _logger.LogDebug("PreparePayment: Fetching hotel info and availability for HotelId: {HotelId}", pars.HotelId);
+                logger.LogDebug("PreparePayment: Fetching hotel info and availability for HotelId: {HotelId}", pars.HotelId);
 
                 WHSingleAvailabilityRequest whReq = new()
                 {
@@ -405,7 +396,7 @@ namespace TravelBridge.API.Endpoints
 
                 if (!AvailabilityProcessor.HasSufficientAvailability(availRes, SelectedRates))
                 {
-                    _logger.LogWarning("PreparePayment failed: Not enough rooms available for HotelId: {HotelId}", pars.HotelId);
+                    logger.LogWarning("PreparePayment failed: Not enough rooms available for HotelId: {HotelId}", pars.HotelId);
                     return new PreparePaymentResponse
                     {
                         ErrorCode = "Error",
@@ -432,7 +423,7 @@ namespace TravelBridge.API.Endpoints
                                 }
                                 else
                                 {
-                                    _logger.LogWarning("PreparePayment failed: Rates don't exist anymore for RateId: {RateId}", selectedRate.rateId);
+                                    logger.LogWarning("PreparePayment failed: Rates don't exist anymore for RateId: {RateId}", selectedRate.rateId);
                                     throw new InvalidOperationException("Rates don't exist any more");
                                 }
 
@@ -447,7 +438,7 @@ namespace TravelBridge.API.Endpoints
                     }
                     if (!found)
                     {
-                        _logger.LogWarning("PreparePayment failed: Rate not found - RateId: {RateId}", selectedRate.rateId);
+                        logger.LogWarning("PreparePayment failed: Rate not found - RateId: {RateId}", selectedRate.rateId);
                         throw new InvalidOperationException("Rates don't exist any more");
                     }
                 }
@@ -458,12 +449,12 @@ namespace TravelBridge.API.Endpoints
 
                 if (res.TotalPrice != pars.TotalPrice || (res.PartialPayment != null && (res.PartialPayment.prepayAmount != pars.PrepayAmount && res.TotalPrice != pars.PrepayAmount)))
                 {
-                    _logger.LogWarning("PreparePayment failed: Price has changed. Expected: {ExpectedTotal}/{ExpectedPrepay}, Got: {ActualTotal}/{ActualPrepay}", 
+                    logger.LogWarning("PreparePayment failed: Price has changed. Expected: {ExpectedTotal}/{ExpectedPrepay}, Got: {ActualTotal}/{ActualPrepay}", 
                         pars.TotalPrice, pars.PrepayAmount, res.TotalPrice, res.PartialPayment?.prepayAmount);
                     throw new InvalidOperationException("Price has changed");
                 }
 
-                _logger.LogInformation("PreparePayment: Creating Viva payment for Amount: {Amount}", pars.PrepayAmount);
+                logger.LogInformation("PreparePayment: Creating Viva payment for Amount: {Amount}", pars.PrepayAmount);
 
                 var payment = new VivaPaymentRequest
                 {
@@ -480,12 +471,12 @@ namespace TravelBridge.API.Endpoints
                 };
 
                 var orderCode = await viva.GetPaymentCode(payment);
-                _logger.LogInformation("PreparePayment: Received OrderCode: {OrderCode} from Viva", orderCode);
+                logger.LogInformation("PreparePayment: Received OrderCode: {OrderCode} from Viva", orderCode);
 
                 await repo.CreateTemporaryExternalReservation(res, pars, parsedCheckin, parsedCheckOut, payment, orderCode, party);
 
                 stopwatch.Stop();
-                _logger.LogInformation("PreparePayment completed for HotelId: {HotelId}, OrderCode: {OrderCode} in {ElapsedMs}ms", 
+                logger.LogInformation("PreparePayment completed for HotelId: {HotelId}, OrderCode: {OrderCode} in {ElapsedMs}ms", 
                     pars.HotelId, orderCode, stopwatch.ElapsedMilliseconds);
 
                 PreparePaymentResponse response = new()
@@ -497,15 +488,15 @@ namespace TravelBridge.API.Endpoints
             catch (Exception ex) when (ex is not InvalidCastException && ex is not ArgumentException && ex is not InvalidOperationException)
             {
                 stopwatch.Stop();
-                _logger.LogError(ex, "PreparePayment failed for HotelId: {HotelId} after {ElapsedMs}ms", 
+                logger.LogError(ex, "PreparePayment failed for HotelId: {HotelId} after {ElapsedMs}ms", 
                     pars.HotelId, stopwatch.ElapsedMilliseconds);
                 throw;
             }
         }
 
-        private async Task<CheckoutResponse> ApplyCoupon(ReservationRequest reservationRequest, ReservationsRepository repo)
+        private static async Task<CheckoutResponse> ApplyCoupon(ReservationRequest reservationRequest, WebHotelierPropertiesService webHotelierPropertiesService, ReservationsRepository repo, ILogger logger)
         {
-            _logger.LogInformation("ApplyCoupon started for HotelId: {HotelId}, CouponCode: {CouponCode}", 
+            logger.LogInformation("ApplyCoupon started for HotelId: {HotelId}, CouponCode: {CouponCode}", 
                 reservationRequest.reservationDetails.hotelId, reservationRequest.couponCode);
             var stopwatch = System.Diagnostics.Stopwatch.StartNew();
 
@@ -515,20 +506,20 @@ namespace TravelBridge.API.Endpoints
 
                 if (!DateTime.TryParseExact(reservationRequest.reservationDetails.checkIn, "dd/MM/yyyy", CultureInfo.InvariantCulture, DateTimeStyles.None, out var parsedCheckin))
                 {
-                    _logger.LogWarning("ApplyCoupon failed: Invalid checkin date format");
+                    logger.LogWarning("ApplyCoupon failed: Invalid checkin date format");
                     throw new InvalidCastException("Invalid checkin date format. Use dd/MM/yyyy.");
                 }
 
                 if (!DateTime.TryParseExact(reservationRequest.reservationDetails.checkOut, "dd/MM/yyyy", CultureInfo.InvariantCulture, DateTimeStyles.None, out var parsedCheckOut))
                 {
-                    _logger.LogWarning("ApplyCoupon failed: Invalid checkout date format");
+                    logger.LogWarning("ApplyCoupon failed: Invalid checkout date format");
                     throw new InvalidCastException("Invalid checkout date format. Use dd/MM/yyyy.");
                 }
 
                 List<SelectedRate>? Selectedrates;
                 if (string.IsNullOrWhiteSpace(reservationRequest.reservationDetails.selectedRates))
                 {
-                    _logger.LogWarning("ApplyCoupon failed: Invalid selected rates");
+                    logger.LogWarning("ApplyCoupon failed: Invalid selected rates");
                     throw new InvalidCastException("Invalid selected rates");
                 }
                 else
@@ -536,20 +527,20 @@ namespace TravelBridge.API.Endpoints
                     Selectedrates = RatesToList(reservationRequest.reservationDetails.selectedRates);
                     if (Selectedrates == null)
                     {
-                        _logger.LogWarning("ApplyCoupon failed: Could not parse selected rates");
+                        logger.LogWarning("ApplyCoupon failed: Could not parse selected rates");
                         throw new InvalidCastException("Invalid selected rates");
                     }
                 }
 
                 if (!CompositeId.TryParse(reservationRequest.reservationDetails.hotelId, out var compositeId))
                 {
-                    _logger.LogWarning("ApplyCoupon failed: Invalid hotelId format");
+                    logger.LogWarning("ApplyCoupon failed: Invalid hotelId format");
                     throw new ArgumentException("Invalid hotelId format. Expected format: '{providerId}-{hotelCode}'.");
                 }
 
                 #endregion Param Validation
 
-                _logger.LogDebug("ApplyCoupon: Fetching hotel info and availability");
+                logger.LogDebug("ApplyCoupon: Fetching hotel info and availability");
 
                 WHSingleAvailabilityRequest whReq = new()
                 {
@@ -598,12 +589,12 @@ namespace TravelBridge.API.Endpoints
                     SelectedPeople = GetPartyInfo(Selectedrates)
                 };
 
-                _logger.LogInformation("ApplyCoupon: CouponValid: {CouponValid}, CouponDiscount: {CouponDiscount}", 
+                logger.LogInformation("ApplyCoupon: CouponValid: {CouponValid}, CouponDiscount: {CouponDiscount}", 
                     availRes.CouponValid, availRes.CouponDiscount);
 
                 if (!AvailabilityProcessor.HasSufficientAvailability(availRes, Selectedrates))
                 {
-                    _logger.LogWarning("ApplyCoupon: Not enough rooms available");
+                    logger.LogWarning("ApplyCoupon: Not enough rooms available");
                     res.ErrorCode = "Error";
                     res.ErrorMessage = "Not enough rooms";
                     res.Rooms = new List<CheckoutRoomInfo>();
@@ -651,7 +642,7 @@ namespace TravelBridge.API.Endpoints
                 res.TotalPrice = res.Rooms.Sum(r => (r.TotalPrice * r.SelectedQuantity));
 
                 stopwatch.Stop();
-                _logger.LogInformation("ApplyCoupon completed for HotelId: {HotelId}, TotalPrice: {TotalPrice} in {ElapsedMs}ms", 
+                logger.LogInformation("ApplyCoupon completed for HotelId: {HotelId}, TotalPrice: {TotalPrice} in {ElapsedMs}ms", 
                     reservationRequest.reservationDetails.hotelId, res.TotalPrice, stopwatch.ElapsedMilliseconds);
 
                 return res;
@@ -659,14 +650,14 @@ namespace TravelBridge.API.Endpoints
             catch (Exception ex) when (ex is not InvalidCastException && ex is not ArgumentException && ex is not InvalidOperationException)
             {
                 stopwatch.Stop();
-                _logger.LogError(ex, "ApplyCoupon failed after {ElapsedMs}ms", stopwatch.ElapsedMilliseconds);
+                logger.LogError(ex, "ApplyCoupon failed after {ElapsedMs}ms", stopwatch.ElapsedMilliseconds);
                 throw;
             }
         }
 
-        private async Task<CheckoutResponse> GetCheckoutInfo(SubmitSearchParameters pars)
+        private static async Task<CheckoutResponse> GetCheckoutInfo(SubmitSearchParameters pars, WebHotelierPropertiesService webHotelierPropertiesService, ILogger logger)
         {
-            _logger.LogInformation("GetCheckoutInfo started for HotelId: {HotelId}, CheckIn: {CheckIn}, CheckOut: {CheckOut}", 
+            logger.LogInformation("GetCheckoutInfo started for HotelId: {HotelId}, CheckIn: {CheckIn}, CheckOut: {CheckOut}", 
                 pars.hotelId, pars.checkin, pars.checkOut);
             var stopwatch = System.Diagnostics.Stopwatch.StartNew();
 
@@ -676,20 +667,20 @@ namespace TravelBridge.API.Endpoints
 
                 if (!DateTime.TryParseExact(pars.checkin, "dd/MM/yyyy", CultureInfo.InvariantCulture, DateTimeStyles.None, out var parsedCheckin))
                 {
-                    _logger.LogWarning("GetCheckoutInfo failed: Invalid checkin date format");
+                    logger.LogWarning("GetCheckoutInfo failed: Invalid checkin date format");
                     throw new InvalidCastException("Invalid checkin date format. Use dd/MM/yyyy.");
                 }
 
                 if (!DateTime.TryParseExact(pars.checkOut, "dd/MM/yyyy", CultureInfo.InvariantCulture, DateTimeStyles.None, out var parsedCheckOut))
                 {
-                    _logger.LogWarning("GetCheckoutInfo failed: Invalid checkout date format");
+                    logger.LogWarning("GetCheckoutInfo failed: Invalid checkout date format");
                     throw new InvalidCastException("Invalid checkout date format. Use dd/MM/yyyy.");
                 }
 
                 List<SelectedRate>? Selectedrates;
                 if (string.IsNullOrWhiteSpace(pars.selectedRates))
                 {
-                    _logger.LogWarning("GetCheckoutInfo failed: Invalid selected rates");
+                    logger.LogWarning("GetCheckoutInfo failed: Invalid selected rates");
                     throw new InvalidCastException("Invalid selected rates");
                 }
                 else
@@ -697,7 +688,7 @@ namespace TravelBridge.API.Endpoints
                     Selectedrates = RatesToList(pars.selectedRates);
                     if (Selectedrates == null)
                     {
-                        _logger.LogWarning("GetCheckoutInfo failed: Could not parse selected rates");
+                        logger.LogWarning("GetCheckoutInfo failed: Could not parse selected rates");
                         throw new InvalidCastException("Invalid selected rates");
                     }
                 }
@@ -719,13 +710,13 @@ namespace TravelBridge.API.Endpoints
 
                 if (!CompositeId.TryParse(pars.hotelId, out var compositeId))
                 {
-                    _logger.LogWarning("GetCheckoutInfo failed: Invalid hotelId format");
+                    logger.LogWarning("GetCheckoutInfo failed: Invalid hotelId format");
                     throw new ArgumentException("Invalid hotelId format. Expected format: '{providerId}-{hotelCode}'.");
                 }
 
                 #endregion Param Validation
 
-                _logger.LogDebug("GetCheckoutInfo: Fetching hotel info and availability");
+                logger.LogDebug("GetCheckoutInfo: Fetching hotel info and availability");
 
                 WHSingleAvailabilityRequest whReq = new()
                 {
@@ -776,7 +767,7 @@ namespace TravelBridge.API.Endpoints
 
                 if (!AvailabilityProcessor.HasSufficientAvailability(availRes, Selectedrates))
                 {
-                    _logger.LogWarning("GetCheckoutInfo: Not enough rooms available for HotelId: {HotelId}", pars.hotelId);
+                    logger.LogWarning("GetCheckoutInfo: Not enough rooms available for HotelId: {HotelId}", pars.hotelId);
                     res.ErrorCode = "Error";
                     res.ErrorMessage = "Not enough rooms";
                     res.Rooms = new List<CheckoutRoomInfo>();
@@ -805,7 +796,7 @@ namespace TravelBridge.API.Endpoints
                                 }
                                 else
                                 {
-                                    _logger.LogWarning("GetCheckoutInfo: Rates don't exist anymore for RateId: {RateId}", selectedRate.rateId);
+                                    logger.LogWarning("GetCheckoutInfo: Rates don't exist anymore for RateId: {RateId}", selectedRate.rateId);
                                     throw new InvalidOperationException("Rates don't exist any more");
                                 }
 
@@ -820,7 +811,7 @@ namespace TravelBridge.API.Endpoints
                     }
                     if (!found)
                     {
-                        _logger.LogWarning("GetCheckoutInfo: Rate not found - RateId: {RateId}", selectedRate.rateId);
+                        logger.LogWarning("GetCheckoutInfo: Rate not found - RateId: {RateId}", selectedRate.rateId);
                         throw new InvalidOperationException("Rates don't exist any more");
                     }
                 }
@@ -829,7 +820,7 @@ namespace TravelBridge.API.Endpoints
                 res.TotalPrice = res.Rooms.Sum(r => (r.TotalPrice * r.SelectedQuantity));
 
                 stopwatch.Stop();
-                _logger.LogInformation("GetCheckoutInfo completed for HotelId: {HotelId}, TotalPrice: {TotalPrice}, RoomsCount: {RoomsCount} in {ElapsedMs}ms", 
+                logger.LogInformation("GetCheckoutInfo completed for HotelId: {HotelId}, TotalPrice: {TotalPrice}, RoomsCount: {RoomsCount} in {ElapsedMs}ms", 
                     pars.hotelId, res.TotalPrice, res.Rooms.Count, stopwatch.ElapsedMilliseconds);
 
                 return res;
@@ -837,7 +828,7 @@ namespace TravelBridge.API.Endpoints
             catch (Exception ex) when (ex is not InvalidCastException && ex is not ArgumentException && ex is not InvalidOperationException)
             {
                 stopwatch.Stop();
-                _logger.LogError(ex, "GetCheckoutInfo failed for HotelId: {HotelId} after {ElapsedMs}ms", 
+                logger.LogError(ex, "GetCheckoutInfo failed for HotelId: {HotelId} after {ElapsedMs}ms", 
                     pars.hotelId, stopwatch.ElapsedMilliseconds);
                 throw;
             }

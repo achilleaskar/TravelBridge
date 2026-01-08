@@ -170,10 +170,6 @@ builder.Services.AddHttpClient("VivaApi", (sp, client) =>
 builder.Services.AddSingleton<SmtpEmailSender, SmtpEmailSender>();
 builder.Services.AddScoped<WebHotelierPropertiesService>();
 builder.Services.AddScoped<IAvailabilityService, AvailabilityService>();
-builder.Services.AddScoped<SearchPluginEndpoints>();
-builder.Services.AddScoped<HotelEndpoint>();
-builder.Services.AddScoped<ReservationEndpoints>();
-
 builder.Services.AddScoped<VivaService>();
 builder.Services.AddScoped<VivaAuthService>();
 
@@ -186,9 +182,6 @@ builder.Services.AddScoped<TravelBridge.Providers.Abstractions.Store.IOwnedInven
 // Register OwnedHotelProvider as IHotelProvider
 // Note: Multiple IHotelProvider implementations will be resolved by HotelProviderResolver
 builder.Services.AddScoped<IHotelProvider, TravelBridge.Providers.Owned.OwnedHotelProvider>();
-
-// Register admin endpoint
-builder.Services.AddScoped<OwnedAdminEndpoint>();
 
 // Register background service for inventory seeding
 builder.Services.AddHostedService<InventorySeedService>();
@@ -211,7 +204,8 @@ app.UseRateLimiter();
 // Lightweight request logging middleware with correlation ID
 app.Use(async (context, next) =>
 {
-    var logger = context.RequestServices.GetRequiredService<ILogger<Program>>();
+    var loggerFactory = context.RequestServices.GetRequiredService<ILoggerFactory>();
+    var logger = loggerFactory.CreateLogger("RequestLogging");
     
     // Get or generate session ID from request header
     var sessionId = context.Request.Headers["X-Session-Id"].FirstOrDefault() 
@@ -261,23 +255,11 @@ app.Use(async (context, next) =>
 // Map Health Check endpoint
 app.MapHealthChecks("/health");
 
-// Create a scope for the DI container
-using (var scope = app.Services.CreateScope())
-{
-    var serviceProvider = scope.ServiceProvider;
-
-    var searchEndpoints = serviceProvider.GetRequiredService<SearchPluginEndpoints>();
-    searchEndpoints.MapEndpoints(app);
-
-    var hotelEndpoints = serviceProvider.GetRequiredService<HotelEndpoint>();
-    hotelEndpoints.MapEndpoints(app);
-
-    var reservationEndpoints = serviceProvider.GetRequiredService<ReservationEndpoints>();
-    reservationEndpoints.MapEndpoints(app);
-
-    var ownedAdminEndpoints = serviceProvider.GetRequiredService<OwnedAdminEndpoint>();
-    ownedAdminEndpoints.MapEndpoints(app);
-}
+// Map endpoints - static classes with per-request DI resolution
+SearchPluginEndpoints.MapEndpoints(app);
+HotelEndpoint.MapEndpoints(app);
+ReservationEndpoints.MapEndpoints(app);
+OwnedAdminEndpoint.MapEndpoints(app);
 
 #endregion Register Endpoint Groups
 
@@ -288,3 +270,6 @@ app.UseSwaggerUI();
 app.Lifetime.ApplicationStopped.Register(Log.CloseAndFlush);
 
 await app.RunAsync();
+
+// Make Program accessible for WebApplicationFactory<Program> in integration tests
+public partial class Program { }

@@ -14,12 +14,13 @@ namespace TravelBridge.Tests.Unit;
 [TestClass]
 public class ReservationEndpointsTests
 {
-    private Mock<ILogger<ReservationEndpoints>> _mockLogger = null!;
+    private Mock<ILogger> _mockLogger = null!;
 
     [TestInitialize]
     public void Setup()
     {
-        _mockLogger = new Mock<ILogger<ReservationEndpoints>>();
+        _mockLogger = new Mock<ILogger>();
+        // Note: ReservationEndpoints is now a static class with per-request DI
     }
 
     #region GetCheckoutInfo Validation Tests

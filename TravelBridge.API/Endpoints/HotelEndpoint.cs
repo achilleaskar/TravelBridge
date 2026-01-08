@@ -14,83 +14,71 @@ using TravelBridge.Providers.Abstractions.Models;
 
 namespace TravelBridge.API.Endpoints
 {
-    public class HotelEndpoint
+    public static class HotelEndpoint
     {
-        private readonly IAvailabilityService _availabilityService;
-        private readonly IHotelProviderResolver _providerResolver;
-        private readonly ILogger<HotelEndpoint> _logger;
-
-        public HotelEndpoint(
-            IAvailabilityService availabilityService, 
-            IHotelProviderResolver providerResolver,
-            ILogger<HotelEndpoint> logger)
-        {
-            _availabilityService = availabilityService;
-            _providerResolver = providerResolver;
-            _logger = logger;
-        }
-
-        public void MapEndpoints(IEndpointRouteBuilder app)
+        public static void MapEndpoints(IEndpointRouteBuilder app)
         {
             var apiGroup = app.MapGroup("/api/hotel");
 
             apiGroup.MapGet("/hotelInfo",
            [EndpointSummary("Returns info of the selected hotel")]
-            async (string HotelId) =>
-            await GetHotelInfo(HotelId))
+            async (string HotelId, IHotelProviderResolver providerResolver, ILogger<Program> logger) =>
+                await GetHotelInfo(HotelId, providerResolver, logger))
                .WithName("HotelInfo")
                .WithOpenApi(CustomizeGetHotelInfoOperation);
 
             apiGroup.MapGet("/roomInfo",
                       [EndpointSummary("Returns info of the selected room")]
-            async (string HotelId, string RoomId) =>
-            await GetRoomInfo(HotelId, RoomId))
+            async (string HotelId, string RoomId, IHotelProviderResolver providerResolver, ILogger<Program> logger) =>
+                await GetRoomInfo(HotelId, RoomId, providerResolver, logger))
                           .WithName("RoomInfo")
                           .WithOpenApi(CustomizeGetRoomInfoOperation);
 
             apiGroup.MapGet("/hotelRoomAvailability",
            [EndpointSummary("Returns availability of the selected hotel")]
-            async (string checkin, string checkOut, int? adults, string? children, int? rooms, string? party, string hotelId, ReservationsRepository repo) =>
-            await GetHotelAvailability(checkin, checkOut, adults, children, rooms, party, hotelId, repo))
+            async (string checkin, string checkOut, int? adults, string? children, int? rooms, string? party, string hotelId, 
+                   IAvailabilityService availabilityService, IHotelProviderResolver providerResolver, ReservationsRepository repo, ILogger<Program> logger) =>
+                await GetHotelAvailability(checkin, checkOut, adults, children, rooms, party, hotelId, availabilityService, providerResolver, repo, logger))
                .WithName("HotelRoomAvailability")
                .WithOpenApi(CustomizeGetHotelAvailabilityOperation);
 
             apiGroup.MapGet("/HotelFullInfo",
            [EndpointSummary("Returns full info for the selected hotel")]
-            async (string checkin, string checkOut, int? adults, string? children, int? rooms, string? party, string hotelId, ReservationsRepository reservationsRepository) =>
-           await GetHotelFullInfo(checkin, checkOut, adults, children, rooms, party, hotelId, reservationsRepository))
+            async (string checkin, string checkOut, int? adults, string? children, int? rooms, string? party, string hotelId, 
+                   IAvailabilityService availabilityService, IHotelProviderResolver providerResolver, ReservationsRepository reservationsRepository, ILogger<Program> logger) =>
+                await GetHotelFullInfo(checkin, checkOut, adults, children, rooms, party, hotelId, availabilityService, providerResolver, reservationsRepository, logger))
                .WithName("HotelFullInfo")
                .WithOpenApi(CustomizeGetHotelAvailabilityOperation);
         }
 
-        private async Task<IResult> GetHotelInfo(string hotelId)
+        private static async Task<IResult> GetHotelInfo(string hotelId, IHotelProviderResolver providerResolver, ILogger logger)
         {
-            _logger.LogInformation("GetHotelInfo started for HotelId: {HotelId}", hotelId);
+            logger.LogInformation("GetHotelInfo started for HotelId: {HotelId}", hotelId);
             var stopwatch = System.Diagnostics.Stopwatch.StartNew();
 
             try
             {
                 if (string.IsNullOrWhiteSpace(hotelId))
                 {
-                    _logger.LogWarning("GetHotelInfo failed: Hotel ID is null or empty");
+                    logger.LogWarning("GetHotelInfo failed: Hotel ID is null or empty");
                     return Results.BadRequest(new { error = "Hotel ID cannot be null or empty." });
                 }
 
                 if (!CompositeId.TryParse(hotelId, out var compositeId))
                 {
-                    _logger.LogWarning("GetHotelInfo failed: Invalid hotelId format {HotelId}", hotelId);
+                    logger.LogWarning("GetHotelInfo failed: Invalid hotelId format {HotelId}", hotelId);
                     return Results.BadRequest(new { error = "Invalid hotel id format. Expected '{providerId}-{hotelId}'." });
                 }
 
                 // Resolve provider - return 400 if not supported
-                if (!_providerResolver.TryGet(compositeId.ProviderId, out var provider))
+                if (!providerResolver.TryGet(compositeId.ProviderId, out var provider))
                 {
-                    _logger.LogWarning("GetHotelInfo failed: Provider {ProviderId} not supported for HotelId: {HotelId}", 
+                    logger.LogWarning("GetHotelInfo failed: Provider {ProviderId} not supported for HotelId: {HotelId}", 
                         compositeId.ProviderId, hotelId);
                     return Results.BadRequest(new { error = $"Hotel provider '{compositeId.ProviderId}' is not supported." });
                 }
 
-                _logger.LogDebug("Fetching hotel info via provider {ProviderId} for property: {PropertyId}", 
+                logger.LogDebug("Fetching hotel info via provider {ProviderId} for property: {PropertyId}", 
                     compositeId.ProviderId, compositeId.Value);
 
                 // Call provider
@@ -100,7 +88,7 @@ namespace TravelBridge.API.Endpoints
                 if (!result.IsSuccess)
                 {
                     stopwatch.Stop();
-                    _logger.LogWarning("GetHotelInfo failed for HotelId: {HotelId}, ErrorCode: {ErrorCode}, ErrorMessage: {ErrorMessage}", 
+                    logger.LogWarning("GetHotelInfo failed for HotelId: {HotelId}, ErrorCode: {ErrorCode}, ErrorMessage: {ErrorMessage}", 
                         hotelId, result.ErrorCode, result.ErrorMessage);
                     return Results.Ok(new HotelInfoResponse
                     {
@@ -114,7 +102,7 @@ namespace TravelBridge.API.Endpoints
                 var contractsData = ProviderToContractsMapper.ToHotelData(result.Data!, compositeId.ProviderId);
 
                 stopwatch.Stop();
-                _logger.LogInformation("GetHotelInfo completed for HotelId: {HotelId} in {ElapsedMs}ms, HasData: {HasData}", 
+                logger.LogInformation("GetHotelInfo completed for HotelId: {HotelId} in {ElapsedMs}ms, HasData: {HasData}", 
                     hotelId, stopwatch.ElapsedMilliseconds, contractsData != null);
 
                 return Results.Ok(new HotelInfoResponse
@@ -127,15 +115,16 @@ namespace TravelBridge.API.Endpoints
             catch (Exception ex)
             {
                 stopwatch.Stop();
-                _logger.LogError(ex, "GetHotelInfo failed for HotelId: {HotelId} after {ElapsedMs}ms", 
+                logger.LogError(ex, "GetHotelInfo failed for HotelId: {HotelId} after {ElapsedMs}ms", 
                     hotelId, stopwatch.ElapsedMilliseconds);
                 throw;
             }
         }
 
-        public async Task<IResult> GetHotelFullInfo(string checkin, string checkOut, int? adults, string? children, int? rooms, string? party, string hotelId, ReservationsRepository reservationsRepository)
+        private static async Task<IResult> GetHotelFullInfo(string checkin, string checkOut, int? adults, string? children, int? rooms, string? party, string hotelId, 
+            IAvailabilityService availabilityService, IHotelProviderResolver providerResolver, ReservationsRepository reservationsRepository, ILogger logger)
         {
-            _logger.LogInformation("GetHotelFullInfo started for HotelId: {HotelId}, CheckIn: {CheckIn}, CheckOut: {CheckOut}, Adults: {Adults}, Children: {Children}, Rooms: {Rooms}", 
+            logger.LogInformation("GetHotelFullInfo started for HotelId: {HotelId}, CheckIn: {CheckIn}, CheckOut: {CheckOut}, Adults: {Adults}, Children: {Children}, Rooms: {Rooms}", 
                 hotelId, checkin, checkOut, adults, children, rooms);
             var stopwatch = System.Diagnostics.Stopwatch.StartNew();
 
@@ -145,33 +134,33 @@ namespace TravelBridge.API.Endpoints
 
                 if (string.IsNullOrWhiteSpace(hotelId))
                 {
-                    _logger.LogWarning("GetHotelFullInfo failed: Hotel ID is null or empty");
+                    logger.LogWarning("GetHotelFullInfo failed: Hotel ID is null or empty");
                     return Results.BadRequest(new { error = "Hotel ID cannot be null or empty." });
                 }
 
                 if (!CompositeId.TryParse(hotelId, out var compositeId))
                 {
-                    _logger.LogWarning("GetHotelFullInfo failed: Invalid hotelId format {HotelId}", hotelId);
+                    logger.LogWarning("GetHotelFullInfo failed: Invalid hotelId format {HotelId}", hotelId);
                     return Results.BadRequest(new { error = "Invalid hotel id format. Expected '{providerId}-{hotelId}'." });
                 }
 
                 // Resolve provider - return 400 if not supported
-                if (!_providerResolver.TryGet(compositeId.ProviderId, out var provider))
+                if (!providerResolver.TryGet(compositeId.ProviderId, out var provider))
                 {
-                    _logger.LogWarning("GetHotelFullInfo failed: Provider {ProviderId} not supported for HotelId: {HotelId}", 
+                    logger.LogWarning("GetHotelFullInfo failed: Provider {ProviderId} not supported for HotelId: {HotelId}", 
                         compositeId.ProviderId, hotelId);
                     return Results.BadRequest(new { error = $"Hotel provider '{compositeId.ProviderId}' is not supported." });
                 }
 
                 if (!DateTime.TryParseExact(checkin, "dd/MM/yyyy", CultureInfo.InvariantCulture, DateTimeStyles.None, out var parsedCheckin))
                 {
-                    _logger.LogWarning("GetHotelFullInfo failed: Invalid checkin date format {CheckIn}", checkin);
+                    logger.LogWarning("GetHotelFullInfo failed: Invalid checkin date format {CheckIn}", checkin);
                     return Results.BadRequest(new { error = "Invalid checkin date format. Use dd/MM/yyyy." });
                 }
 
                 if (!DateTime.TryParseExact(checkOut, "dd/MM/yyyy", CultureInfo.InvariantCulture, DateTimeStyles.None, out var parsedCheckOut))
                 {
-                    _logger.LogWarning("GetHotelFullInfo failed: Invalid checkout date format {CheckOut}", checkOut);
+                    logger.LogWarning("GetHotelFullInfo failed: Invalid checkout date format {CheckOut}", checkOut);
                     return Results.BadRequest(new { error = "Invalid checkout date format. Use dd/MM/yyyy." });
                 }
 
@@ -179,13 +168,13 @@ namespace TravelBridge.API.Endpoints
                 {
                     if (rooms != 1)
                     {
-                        _logger.LogWarning("GetHotelFullInfo failed: Party required when rooms > 1, Rooms: {Rooms}", rooms);
+                        logger.LogWarning("GetHotelFullInfo failed: Party required when rooms > 1, Rooms: {Rooms}", rooms);
                         return Results.BadRequest(new { error = "When rooms > 1, party must be used." });
                     }
 
                     if (adults == null || adults < 1)
                     {
-                        _logger.LogWarning("GetHotelFullInfo failed: At least one adult required, Adults: {Adults}", adults);
+                        logger.LogWarning("GetHotelFullInfo failed: At least one adult required, Adults: {Adults}", adults);
                         return Results.BadRequest(new { error = "There must be at least one adult in the room." });
                     }
 
@@ -198,14 +187,14 @@ namespace TravelBridge.API.Endpoints
 
                 #endregion Params Validation
 
-                _logger.LogDebug("Fetching availability and hotel info via provider {ProviderId} for HotelId: {HotelId}, Party: {Party}", 
+                logger.LogDebug("Fetching availability and hotel info via provider {ProviderId} for HotelId: {HotelId}, Party: {Party}", 
                     compositeId.ProviderId, hotelId, party);
 
                 // Call provider for hotel info and availability service in parallel
                 var hotelInfoQuery = new HotelInfoQuery { HotelId = compositeId.Value };
                 var hotelInfoTask = provider.GetHotelInfoAsync(hotelInfoQuery);
 
-                var availTask = _availabilityService.GetHotelAvailabilityAsync(
+                var availTask = availabilityService.GetHotelAvailabilityAsync(
                     compositeId.Value,
                     compositeId.ProviderId,
                     parsedCheckin,
@@ -253,7 +242,7 @@ namespace TravelBridge.API.Endpoints
                 res.HotelData.SetBoardText();
 
                 stopwatch.Stop();
-                _logger.LogInformation("GetHotelFullInfo completed for HotelId: {HotelId} in {ElapsedMs}ms, RoomsCount: {RoomsCount}, MinPrice: {MinPrice}", 
+                logger.LogInformation("GetHotelFullInfo completed for HotelId: {HotelId} in {ElapsedMs}ms, RoomsCount: {RoomsCount}, MinPrice: {MinPrice}", 
                     hotelId, stopwatch.ElapsedMilliseconds, res.Rooms.Count(), res.HotelData.MinPrice);
 
                 return Results.Ok(res);
@@ -261,19 +250,19 @@ namespace TravelBridge.API.Endpoints
             catch (Exception ex)
             {
                 stopwatch.Stop();
-                _logger.LogError(ex, "GetHotelFullInfo failed for HotelId: {HotelId} after {ElapsedMs}ms", 
+                logger.LogError(ex, "GetHotelFullInfo failed for HotelId: {HotelId} after {ElapsedMs}ms", 
                     hotelId, stopwatch.ElapsedMilliseconds);
                 throw;
             }
         }
 
-        private string GetHotelBasicInfo(SingleAvailabilityResponse availRes, HotelData hotelData)
+        private static string GetHotelBasicInfo(SingleAvailabilityResponse availRes, HotelData hotelData)
         {
             string response = GenerateHtml(hotelData.Operation);
             return response;
         }
 
-        public string GenerateHtml(HotelOperation operation)
+        private static string GenerateHtml(HotelOperation operation)
         {
             return $@"
                   <ul style='list-style-type: none; padding: 0;'>
@@ -282,40 +271,40 @@ namespace TravelBridge.API.Endpoints
                   </ul>";
         }
 
-        private async Task<IResult> GetRoomInfo(string hotelId, string roomId)
+        private static async Task<IResult> GetRoomInfo(string hotelId, string roomId, IHotelProviderResolver providerResolver, ILogger logger)
         {
-            _logger.LogInformation("GetRoomInfo started for HotelId: {HotelId}, RoomId: {RoomId}", hotelId, roomId);
+            logger.LogInformation("GetRoomInfo started for HotelId: {HotelId}, RoomId: {RoomId}", hotelId, roomId);
             var stopwatch = System.Diagnostics.Stopwatch.StartNew();
 
             try
             {
                 if (string.IsNullOrWhiteSpace(hotelId))
                 {
-                    _logger.LogWarning("GetRoomInfo failed: Hotel ID is null or empty");
+                    logger.LogWarning("GetRoomInfo failed: Hotel ID is null or empty");
                     return Results.BadRequest(new { error = "Hotel ID cannot be null or empty." });
                 }
 
                 if (string.IsNullOrWhiteSpace(roomId))
                 {
-                    _logger.LogWarning("GetRoomInfo failed: Room ID is null or empty");
+                    logger.LogWarning("GetRoomInfo failed: Room ID is null or empty");
                     return Results.BadRequest(new { error = "Room ID cannot be null or empty." });
                 }
 
                 if (!CompositeId.TryParse(hotelId, out var compositeId))
                 {
-                    _logger.LogWarning("GetRoomInfo failed: Invalid hotelId format {HotelId}", hotelId);
+                    logger.LogWarning("GetRoomInfo failed: Invalid hotelId format {HotelId}", hotelId);
                     return Results.BadRequest(new { error = "Invalid hotel id format. Expected '{providerId}-{hotelId}'." });
                 }
 
                 // Resolve provider - return 400 if not supported
-                if (!_providerResolver.TryGet(compositeId.ProviderId, out var provider))
+                if (!providerResolver.TryGet(compositeId.ProviderId, out var provider))
                 {
-                    _logger.LogWarning("GetRoomInfo failed: Provider {ProviderId} not supported for HotelId: {HotelId}", 
+                    logger.LogWarning("GetRoomInfo failed: Provider {ProviderId} not supported for HotelId: {HotelId}", 
                         compositeId.ProviderId, hotelId);
                     return Results.BadRequest(new { error = $"Hotel provider '{compositeId.ProviderId}' is not supported." });
                 }
 
-                _logger.LogDebug("Fetching room info via provider {ProviderId} for PropertyId: {PropertyId}, RoomId: {RoomId}", 
+                logger.LogDebug("Fetching room info via provider {ProviderId} for PropertyId: {PropertyId}, RoomId: {RoomId}", 
                     compositeId.ProviderId, compositeId.Value, roomId);
 
                 // Call provider
@@ -325,7 +314,7 @@ namespace TravelBridge.API.Endpoints
                 if (!result.IsSuccess)
                 {
                     stopwatch.Stop();
-                    _logger.LogWarning("GetRoomInfo failed for HotelId: {HotelId}, RoomId: {RoomId}, ErrorCode: {ErrorCode}", 
+                    logger.LogWarning("GetRoomInfo failed for HotelId: {HotelId}, RoomId: {RoomId}, ErrorCode: {ErrorCode}", 
                         hotelId, roomId, result.ErrorCode);
                     return Results.Ok(new RoomInfoResponse
                     {
@@ -340,7 +329,7 @@ namespace TravelBridge.API.Endpoints
                 var contractsData = ProviderToContractsMapper.ToRoomInfo(result.Data!);
 
                 stopwatch.Stop();
-                _logger.LogInformation("GetRoomInfo completed for HotelId: {HotelId}, RoomId: {RoomId} in {ElapsedMs}ms, HasData: {HasData}", 
+                logger.LogInformation("GetRoomInfo completed for HotelId: {HotelId}, RoomId: {RoomId} in {ElapsedMs}ms, HasData: {HasData}", 
                     hotelId, roomId, stopwatch.ElapsedMilliseconds, contractsData != null);
 
                 return Results.Ok(new RoomInfoResponse
@@ -354,15 +343,16 @@ namespace TravelBridge.API.Endpoints
             catch (Exception ex)
             {
                 stopwatch.Stop();
-                _logger.LogError(ex, "GetRoomInfo failed for HotelId: {HotelId}, RoomId: {RoomId} after {ElapsedMs}ms", 
+                logger.LogError(ex, "GetRoomInfo failed for HotelId: {HotelId}, RoomId: {RoomId} after {ElapsedMs}ms", 
                     hotelId, roomId, stopwatch.ElapsedMilliseconds);
                 throw;
             }
         }
 
-        private async Task<IResult> GetHotelAvailability(string checkin, string checkOut, int? adults, string? children, int? rooms, string? party, string hotelId, ReservationsRepository reservationsRepository)
+        private static async Task<IResult> GetHotelAvailability(string checkin, string checkOut, int? adults, string? children, int? rooms, string? party, string hotelId, 
+            IAvailabilityService availabilityService, IHotelProviderResolver providerResolver, ReservationsRepository reservationsRepository, ILogger logger)
         {
-            _logger.LogInformation("GetHotelAvailability started for HotelId: {HotelId}, CheckIn: {CheckIn}, CheckOut: {CheckOut}, Adults: {Adults}, Children: {Children}, Rooms: {Rooms}", 
+            logger.LogInformation("GetHotelAvailability started for HotelId: {HotelId}, CheckIn: {CheckIn}, CheckOut: {CheckOut}, Adults: {Adults}, Children: {Children}, Rooms: {Rooms}", 
                 hotelId, checkin, checkOut, adults, children, rooms);
             var stopwatch = System.Diagnostics.Stopwatch.StartNew();
 
@@ -372,26 +362,26 @@ namespace TravelBridge.API.Endpoints
 
                 if (!DateTime.TryParseExact(checkin, "dd/MM/yyyy", CultureInfo.InvariantCulture, DateTimeStyles.None, out var parsedCheckin))
                 {
-                    _logger.LogWarning("GetHotelAvailability failed: Invalid checkin date format {CheckIn}", checkin);
+                    logger.LogWarning("GetHotelAvailability failed: Invalid checkin date format {CheckIn}", checkin);
                     return Results.BadRequest(new { error = "Invalid checkin date format. Use dd/MM/yyyy." });
                 }
 
                 if (!DateTime.TryParseExact(checkOut, "dd/MM/yyyy", CultureInfo.InvariantCulture, DateTimeStyles.None, out var parsedCheckOut))
                 {
-                    _logger.LogWarning("GetHotelAvailability failed: Invalid checkout date format {CheckOut}", checkOut);
+                    logger.LogWarning("GetHotelAvailability failed: Invalid checkout date format {CheckOut}", checkOut);
                     return Results.BadRequest(new { error = "Invalid checkout date format. Use dd/MM/yyyy." });
                 }
 
                 if (!CompositeId.TryParse(hotelId, out var compositeId))
                 {
-                    _logger.LogWarning("GetHotelAvailability failed: Invalid hotelId format {HotelId}", hotelId);
+                    logger.LogWarning("GetHotelAvailability failed: Invalid hotelId format {HotelId}", hotelId);
                     return Results.BadRequest(new { error = "Invalid hotel id format. Expected '{providerId}-{hotelId}'." });
                 }
 
                 // Resolve provider - return 400 if not supported
-                if (!_providerResolver.TryGet(compositeId.ProviderId, out var provider))
+                if (!providerResolver.TryGet(compositeId.ProviderId, out var provider))
                 {
-                    _logger.LogWarning("GetHotelAvailability failed: Provider {ProviderId} not supported for HotelId: {HotelId}", 
+                    logger.LogWarning("GetHotelAvailability failed: Provider {ProviderId} not supported for HotelId: {HotelId}", 
                         compositeId.ProviderId, hotelId);
                     return Results.BadRequest(new { error = $"Hotel provider '{compositeId.ProviderId}' is not supported." });
                 }
@@ -400,13 +390,13 @@ namespace TravelBridge.API.Endpoints
                 {
                     if (rooms != 1)
                     {
-                        _logger.LogWarning("GetHotelAvailability failed: Party required when rooms > 1, Rooms: {Rooms}", rooms);
+                        logger.LogWarning("GetHotelAvailability failed: Party required when rooms > 1, Rooms: {Rooms}", rooms);
                         return Results.BadRequest(new { error = "When rooms > 1, party must be used." });
                     }
 
                     if (adults == null || adults < 1)
                     {
-                        _logger.LogWarning("GetHotelAvailability failed: At least one adult required, Adults: {Adults}", adults);
+                        logger.LogWarning("GetHotelAvailability failed: At least one adult required, Adults: {Adults}", adults);
                         return Results.BadRequest(new { error = "There must be at least one adult in the room." });
                     }
 
@@ -419,11 +409,11 @@ namespace TravelBridge.API.Endpoints
 
                 #endregion Params Validation
 
-                _logger.LogDebug("Fetching availability via provider {ProviderId} for HotelId: {HotelId}, Party: {Party}", 
+                logger.LogDebug("Fetching availability via provider {ProviderId} for HotelId: {HotelId}, Party: {Party}", 
                     compositeId.ProviderId, hotelId, party);
 
                 // Use provider-neutral availability service
-                var res = await _availabilityService.GetHotelAvailabilityAsync(
+                var res = await availabilityService.GetHotelAvailabilityAsync(
                     compositeId.Value,
                     compositeId.ProviderId,
                     parsedCheckin,
@@ -432,7 +422,7 @@ namespace TravelBridge.API.Endpoints
                     reservationsRepository);
 
                 stopwatch.Stop();
-                _logger.LogInformation("GetHotelAvailability completed for HotelId: {HotelId} in {ElapsedMs}ms, RoomsCount: {RoomsCount}", 
+                logger.LogInformation("GetHotelAvailability completed for HotelId: {HotelId} in {ElapsedMs}ms, RoomsCount: {RoomsCount}", 
                     hotelId, stopwatch.ElapsedMilliseconds, res.Data?.Rooms?.Count() ?? 0);
 
                 return Results.Ok(res);
@@ -440,7 +430,7 @@ namespace TravelBridge.API.Endpoints
             catch (Exception ex)
             {
                 stopwatch.Stop();
-                _logger.LogError(ex, "GetHotelAvailability failed for HotelId: {HotelId} after {ElapsedMs}ms", 
+                logger.LogError(ex, "GetHotelAvailability failed for HotelId: {HotelId} after {ElapsedMs}ms", 
                     hotelId, stopwatch.ElapsedMilliseconds);
                 throw;
             }
